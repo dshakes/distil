@@ -376,7 +376,7 @@ distil shadow-stats                  <span class="d"># check the de rate</span>
       <li><strong>Agent updated</strong> and now pins its own endpoint regardless of the env var. Restart the wrap and watch for the env var line at startup (<code>→ ANTHROPIC_BASE_URL=http://127.0.0.1:…</code>).</li>
       <li><strong>OAuth / subscription login overrides the base URL.</strong> Claude Code on a Pro/Max subscription occasionally ignores the env var for that session. Restart the wrap — the next session usually picks it up.</li>
       <li><strong>Wrong agent name.</strong> The preset only fires when <code>argv[0]</code> matches a name in <code>distil wrap --list</code>. If you aliased the command, pass <code>--env-var</code> (and <code>--upstream</code>) explicitly.</li>
-      <li><strong>Codex.</strong> Its preset is unverified: codex-rs reads its base URL from the <code>openai_base_url</code> config key, and no mapping from <code>OPENAI_BASE_URL</code> was found. A zero-traffic warning on <code>codex</code> is most likely this.</li>
+      <li><strong>Codex.</strong> codex-cli 0.142 ignores <code>OPENAI_BASE_URL</code> and talks WebSocket, so <code>wrap</code> passes session-only <code>-c model_provider=…</code> overrides with <code>supports_websockets=false</code>. If codex is signed in with ChatGPT it talks to <code>chatgpt.com/backend-api/codex</code>, which distil cannot route; <code>wrap</code> prints that, and an API key fixes it. <code>onboard --always-on</code> cannot route codex; plain <code>distil wrap -- codex</code> or the default alias can.</li>
     </ul>
     <p>Run <code>distil doctor</code> for a wiring self-test, or <code>DISTIL_DEBUG=1 distil wrap -- &lt;agent&gt;</code> to see the full proxy log.</p>
 

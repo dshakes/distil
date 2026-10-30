@@ -1,19 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="archTitle archDesc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="712" viewBox="0 0 1200 712" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="archTitle archDesc">
   <title id="archTitle">How Distil works — the request path and the quality contract</title>
-  <desc id="archDesc">Agent traffic enters the Distil proxy on localhost. In order: the drift guard serves lossless-only while a proven budget breach is held; the cold-point planner evicts older tool output to recoverable stubs only when the provider's cache has certainly expired; salience pins the load-bearing lines, then Tier-0 lossless transforms and the Tier-1 reversible digest compress the rest; forwarded-bytes prefix replay re-sends last turn's bytes for an unchanged prefix; then the request goes to Anthropic, OpenAI or Gemini. Originals stay in a local RestoreStore that distil_expand recovers from. Every request appends a hash-chained receipt, sealed into segments with Merkle-root checkpoints. Below, the quality contract: the decision-equivalence certificate, live shadow mode feeding an anytime-valid drift alarm that holds the proxy at lossless-only on breach, and the learned keep-model.</desc>
+  <desc id="archDesc">Agent traffic from Claude Code, Codex, Gemini CLI or any SDK enters the Distil proxy on localhost. In order: the drift guard serves lossless-only while a proven budget breach is held; the cold point evicts older tool output to recoverable stubs only once the provider cache has certainly expired, and on preserved-thinking models (Fable and Mythos 5.1, Opus, Sonnet and Haiku 5.5) also drops the thinking blocks after the eviction; salience pins the load-bearing lines; Tier-0 lossless transforms and the Tier-1 reversible digest compress the rest, the digest keeping the densest identifier lines (paths, URLs, hashes, key=value pairs) in view, and on preserved-thinking lineages each tool result is decided the request it first appears (first sight); prefix replay re-sends last turn's rendering for an unchanged prefix and freezes those decisions on such lineages; thinkguard checks each forwarded thinking block against the prefix it was signed over and drops from the first changed one onward rather than letting the provider return a 400. The request then goes to Anthropic, OpenAI, Gemini, Bedrock InvokeModel or Vertex. On the response path a context guard nudges the usage the client sees as the context window nears, so the client compacts first. Originals stay in a local RestoreStore that distil_expand recovers from. Every request appends a hash-chained receipt, sealed into segments with Merkle-root checkpoints. Below, the quality contract: the decision-equivalence certificate, live shadow mode feeding an anytime-valid drift alarm that holds the proxy at lossless-only on breach, and the learned keep-model.</desc>
   <defs>
     <linearGradient id="abg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
     <linearGradient id="ag" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
     <linearGradient id="acard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
     <linearGradient id="ahero" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#141a2e"/><stop offset="1" stop-color="#0c0f1d"/></linearGradient>
     <pattern id="adots2" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.02"/></pattern>
-    <marker id="aar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7d8cff"/></marker>
+    <marker id="aar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#8b7bff"/></marker>
+    <marker id="aart" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5ad1c9"/></marker>
     <marker id="aarb" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5ad19a"/></marker>
     <style>
       @keyframes flow{to{stroke-dashoffset:-140}}
       @keyframes loopflow{to{stroke-dashoffset:-324}}
-      @keyframes puls{0%,100%{opacity:.45}50%{opacity:1}}
-      @keyframes glow{0%,100%{stroke-opacity:.55}50%{stroke-opacity:1}}
+      @keyframes puls{0%,100%{opacity:.5}50%{opacity:1}}
+      @keyframes glow{0%,100%{stroke-opacity:.6}50%{stroke-opacity:1}}
       .fwd{animation:flow 2.6s linear infinite}
       .loop{animation:loopflow 9.5s linear infinite}
       .dot{animation:puls 2.4s ease-in-out infinite}
@@ -21,78 +22,85 @@
       @media(prefers-reduced-motion:reduce){.fwd,.loop,.dot,.heroedge{animation:none}}
     </style>
   </defs>
-  <rect width="1200" height="600" fill="url(#abg)"/><rect width="1200" height="600" fill="url(#adots2)"/>
+  <rect width="1200" height="712" fill="url(#abg)"/><rect width="1200" height="712" fill="url(#adots2)"/>
 
-  <text x="48" y="52" font-size="26" font-weight="800" letter-spacing="-0.4" fill="#f2f3f7">How Distil works <tspan fill="#9aa0b2" font-weight="500" font-size="16">— a cache-aware compression pipeline with a quality contract</tspan></text>
+  <text x="24" y="52" font-size="26" font-weight="800" letter-spacing="-0.4" fill="#f2f3f7">How Distil works <tspan fill="#9aa1b3" font-weight="500" font-size="16">— a cache-aware compression pipeline with a quality contract</tspan></text>
 
-  <g font-size="12" letter-spacing="2" font-weight="700" text-anchor="middle"><text x="140" y="94" fill="#7b8298">AGENT</text><text x="600" y="94" fill="#7b8298">DISTIL PROXY · localhost</text><text x="1059" y="94" fill="#7b8298">PROVIDER</text></g>
+  <g font-size="12" letter-spacing="2" font-weight="700" text-anchor="middle"><text x="104" y="94" fill="#9aa1b3">AGENT</text><text x="602" y="94" fill="#9aa1b3">DISTIL PROXY · localhost</text><text x="1096" y="94" fill="#9aa1b3">PROVIDER</text></g>
 
-  <line class="fwd" x1="232" y1="164" x2="316" y2="164" stroke="#7d8cff" stroke-width="2.8" stroke-dasharray="5 9" marker-end="url(#aar)"/>
-  <line class="fwd" x1="884" y1="164" x2="966" y2="164" stroke="#7d8cff" stroke-width="2.8" stroke-dasharray="5 9" marker-end="url(#aar)"/>
+  <line class="fwd" x1="184" y1="164" x2="206" y2="164" stroke="#8b7bff" stroke-width="3" stroke-dasharray="5 9" marker-end="url(#aar)"/>
+  <line class="fwd" x1="996" y1="164" x2="1014" y2="164" stroke="#5ad1c9" stroke-width="3" stroke-dasharray="5 9" marker-end="url(#aart)"/>
 
-  <g transform="translate(48,122)"><rect width="184" height="84" rx="14" fill="url(#acard)" stroke="#2c344a"/>
-    <text x="18" y="31" font-size="14" font-weight="700" fill="#eef0f5">Claude Code · Codex</text>
-    <text x="18" y="51" font-size="14" font-weight="700" fill="#eef0f5">Gemini · any SDK</text>
-    <text x="18" y="71" font-size="11" fill="#9aa0b2">re-sends full context every turn</text>
+  <g transform="translate(24,122)"><rect width="160" height="84" rx="14" fill="url(#acard)" stroke="#8b7bff" stroke-width="1.6"/>
+    <text x="14" y="28" font-size="13" font-weight="700" fill="#f2f3f7">Claude Code · Codex</text>
+    <text x="14" y="47" font-size="13" font-weight="700" fill="#f2f3f7">Gemini CLI · any SDK</text>
+    <text x="14" y="68" font-size="11" fill="#9aa1b3">re-sends full context</text>
   </g>
 
-  <rect x="320" y="108" width="560" height="296" rx="20" fill="url(#ahero)" stroke="url(#ag)" stroke-width="1.8" class="heroedge"/>
-  <text x="600" y="136" text-anchor="middle" font-size="16" font-weight="800" fill="url(#ag)">guard → compress → replay → forward</text>
+  <rect x="208" y="108" width="788" height="344" rx="20" fill="url(#ahero)" stroke="url(#ag)" stroke-width="2" class="heroedge"/>
+  <text x="602" y="134" text-anchor="middle" font-size="16" font-weight="800" fill="url(#ag)">guard → compress → replay → verify → forward</text>
 
   <!-- The request path, left to right, in the order the proxy runs it. -->
-  <g font-size="12" text-anchor="middle">
-    <g><rect x="340" y="150" width="98" height="48" rx="10" fill="#1a1420" stroke="#5a3a4a"/><text x="389" y="172" fill="#dbe0ee" font-weight="700">drift guard</text><text x="389" y="188" fill="#9aa0b2" font-size="10">hold on breach</text></g>
-    <g><rect x="445" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="494" y="172" fill="#dbe0ee" font-weight="700">cold point</text><text x="494" y="188" fill="#9aa0b2" font-size="10">cache expired only</text></g>
-    <g><rect x="550" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="599" y="172" fill="#dbe0ee" font-weight="700">salience</text><text x="599" y="188" fill="#9aa0b2" font-size="10">keeps the needle</text></g>
-    <g><rect x="655" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="704" y="172" fill="#dbe0ee" font-weight="700">Tier-0 · Tier-1</text><text x="704" y="188" fill="#9aa0b2" font-size="10">lossless · digest</text></g>
-    <g><rect x="760" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a5740"/><text x="809" y="172" fill="#dbe0ee" font-weight="700">prefix replay</text><text x="809" y="188" fill="#9aa0b2" font-size="10">last turn's bytes</text></g>
+  <g font-size="13" text-anchor="middle">
+    <g><rect x="221" y="148" width="122" height="100" rx="10" fill="#2a1519" stroke="#ff8a6b" stroke-width="1.8"/><text x="282" y="170" fill="#f2f3f7" font-weight="700">drift guard</text><g font-size="11" fill="#ffb09a"><text x="282" y="190">hold on breach</text></g></g>
+    <g><rect x="349" y="148" width="122" height="100" rx="10" fill="#1a1636" stroke="#8b7bff" stroke-width="1.8"/><text x="410" y="170" fill="#f2f3f7" font-weight="700">cold point</text><g font-size="11" fill="#c6bdff"><text x="410" y="190">expired cache only</text><text x="410" y="205">drops thinking</text><text x="410" y="220">after it</text></g></g>
+    <g><rect x="477" y="148" width="122" height="100" rx="10" fill="#0f2a2d" stroke="#5ad1c9" stroke-width="1.8"/><text x="538" y="170" fill="#f2f3f7" font-weight="700">salience</text><g font-size="11" fill="#9eeae4"><text x="538" y="190">keeps the needle</text></g></g>
+    <g><rect x="605" y="148" width="122" height="100" rx="10" fill="#17203a" stroke="url(#ag)" stroke-width="2"/><text x="666" y="170" fill="#f2f3f7" font-weight="700">Tier-0 · Tier-1</text><g font-size="11" fill="#c9d4f2"><text x="666" y="190">lossless · digest</text><text x="666" y="205">keeps identifier</text><text x="666" y="220">lines; first sight</text><text x="666" y="235">on thinking lineages</text></g></g>
+    <g><rect x="733" y="148" width="122" height="100" rx="10" fill="#10281d" stroke="#5ad19a" stroke-width="1.8"/><text x="794" y="170" fill="#f2f3f7" font-weight="700">prefix replay</text><g font-size="11" fill="#a0ecc4"><text x="794" y="190">freezes last turn's</text><text x="794" y="205">rendering</text></g></g>
+    <g><rect x="861" y="148" width="122" height="100" rx="10" fill="#0f2a25" stroke="#5ad19a" stroke-width="1.8"/><text x="922" y="170" fill="#f2f3f7" font-weight="700">thinkguard</text><g font-size="11" fill="#a0ecc4"><text x="922" y="190">verifies signed</text><text x="922" y="205">thinking · drops,</text><text x="922" y="220">never 400s</text></g></g>
   </g>
-  <g stroke="#3a486a" stroke-width="1.4" fill="none"><path d="M438,174 L445,174"/><path d="M543,174 L550,174"/><path d="M648,174 L655,174"/><path d="M753,174 L760,174"/></g>
+  <g stroke="#8b7bff" stroke-width="2" fill="none"><path d="M343,198 L349,198"/><path d="M471,198 L477,198"/><path d="M599,198 L605,198"/><path d="M727,198 L733,198"/><path d="M855,198 L861,198"/></g>
 
-  <rect x="340" y="210" width="518" height="34" rx="9" fill="#0e1320" stroke="#2a5740"/>
-  <circle class="dot" cx="361" cy="227" r="4" fill="#5ad19a"/>
-  <text x="377" y="232" font-size="12.5" fill="#dbe0ee">cache-aware placement — stable prefix billed at the <tspan fill="#6fe0aa" font-weight="700">0.1× cache-read</tspan> rate</text>
+  <rect x="226" y="262" width="752" height="34" rx="9" fill="#0e1320" stroke="#5ad19a" stroke-width="1.6"/>
+  <circle class="dot" cx="247" cy="279" r="4.5" fill="#5ad19a"/>
+  <text x="263" y="284" font-size="13" fill="#f2f3f7">cache-aware placement — stable prefix billed at the <tspan fill="#6fe0aa" font-weight="700">0.1× cache-read</tspan> rate</text>
 
-  <g transform="translate(340,256)"><rect width="248" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">RestoreStore</text><text x="15" y="43" font-size="11" fill="#9aa0b2">originals kept locally · 0 tokens on wire</text><text x="15" y="55" font-size="10" fill="#727a92">never sent to the model</text></g>
-  <g transform="translate(602,256)"><rect width="256" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#5ad1c9">distil_expand</text><text x="15" y="43" font-size="11" fill="#9aa0b2">model recovers any digested detail</text><text x="15" y="55" font-size="10" fill="#727a92">transparent re-query · PAYG</text></g>
+  <g transform="translate(226,306)"><rect width="372" height="60" rx="10" fill="#0e1320" stroke="#8b7bff" stroke-width="1.6"/><text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">RestoreStore</text><text x="15" y="43" font-size="12" fill="#9aa1b3">originals kept locally · 0 tokens on wire</text><text x="15" y="56" font-size="11" fill="#7d8598">never sent to the model</text></g>
+  <g transform="translate(606,306)"><rect width="372" height="60" rx="10" fill="#0e1320" stroke="#5ad1c9" stroke-width="1.6"/><text x="15" y="25" font-size="13" font-weight="700" fill="#5ad1c9">distil_expand</text><text x="15" y="43" font-size="12" fill="#9aa1b3">model recovers any digested detail</text><text x="15" y="56" font-size="11" fill="#7d8598">transparent re-query · PAYG</text></g>
 
-  <g transform="translate(340,328)"><rect width="518" height="60" rx="10" fill="#0e1320" stroke="#3a3560"/>
-    <text x="15" y="24" font-size="13" font-weight="700" fill="#bcacff">receipt chain</text>
-    <text x="118" y="24" font-size="11" fill="#9aa0b2">one hash-linked, content-free receipt per request</text>
-    <g font-size="10.5" fill="#dbe0ee">
-      <rect x="15" y="34" width="84" height="18" rx="5" fill="#141a2e" stroke="#2c344a"/><text x="57" y="47" text-anchor="middle">segment 0</text>
-      <rect x="107" y="34" width="84" height="18" rx="5" fill="#141a2e" stroke="#2c344a"/><text x="149" y="47" text-anchor="middle">segment 1</text>
-      <rect x="199" y="34" width="84" height="18" rx="5" fill="#141a2e" stroke="#2a3650" stroke-dasharray="3 3"/><text x="241" y="47" text-anchor="middle" fill="#9aa0b2">active</text>
+  <g transform="translate(226,378)"><rect width="752" height="62" rx="10" fill="#0e1320" stroke="#8b7bff" stroke-width="1.6"/>
+    <text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">receipt chain</text>
+    <text x="118" y="25" font-size="12" fill="#9aa1b3">one hash-linked, content-free receipt per request</text>
+    <g font-size="11.5" fill="#f2f3f7">
+      <rect x="15" y="36" width="90" height="19" rx="5" fill="#141a2e" stroke="#8b7bff"/><text x="60" y="50" text-anchor="middle">segment 0</text>
+      <rect x="113" y="36" width="90" height="19" rx="5" fill="#141a2e" stroke="#8b7bff"/><text x="158" y="50" text-anchor="middle">segment 1</text>
+      <rect x="211" y="36" width="90" height="19" rx="5" fill="#141a2e" stroke="#5ad1c9" stroke-dasharray="3 3"/><text x="256" y="50" text-anchor="middle" fill="#9eeae4">active</text>
     </g>
-    <text x="298" y="47" font-size="10.5" fill="#9aa0b2">sealed · Merkle-root checkpoint each</text>
+    <text x="316" y="50" font-size="11.5" fill="#9aa1b3">sealed · Merkle-root checkpoint each</text>
   </g>
 
-  <g transform="translate(966,122)"><rect width="186" height="84" rx="14" fill="url(#acard)" stroke="#2c344a"/>
-    <text x="18" y="31" font-size="14" font-weight="700" fill="#eef0f5">Anthropic · OpenAI</text>
-    <text x="18" y="51" font-size="14" font-weight="700" fill="#eef0f5">Google Gemini</text>
-    <text x="18" y="71" font-size="11" fill="#9aa0b2">prompt cache + LLM</text>
+  <g transform="translate(1016,122)"><rect width="160" height="112" rx="14" fill="url(#acard)" stroke="#5ad1c9" stroke-width="1.6"/>
+    <text x="14" y="28" font-size="13" font-weight="700" fill="#f2f3f7">Anthropic · OpenAI</text>
+    <text x="14" y="47" font-size="13" font-weight="700" fill="#f2f3f7">Gemini · Vertex</text>
+    <text x="14" y="66" font-size="13" font-weight="700" fill="#f2f3f7">Bedrock InvokeModel</text>
+    <text x="14" y="92" font-size="11" fill="#9aa1b3">prompt cache + LLM</text>
   </g>
 
-  <!-- recovery loop: ONE continuous dotted line, provider → expand → agent.
-       The label sits on a pill that rides the line, so the line stays connected. -->
-  <path class="loop" d="M1059,206 C1059,372 916,432 600,432 C284,432 150,362 140,210" fill="none" stroke="#5ad19a" stroke-width="2.2" stroke-dasharray="0.1 8" stroke-linecap="round" marker-end="url(#aarb)"/>
-  <rect x="352" y="420" width="496" height="24" rx="12" fill="#0a0b12" stroke="#21402f"/>
-  <text x="600" y="436" text-anchor="middle" font-size="12.5" fill="#7fe6ad">response → transparent expand loop → agent (it just gets the right answer)</text>
+  <!-- response path: context guard acts on what the client sees -->
+  <g transform="translate(260,466)"><rect width="680" height="44" rx="12" fill="#0f2a2d" stroke="#5ad1c9" stroke-width="1.8"/>
+    <text x="18" y="27" font-size="14" font-weight="800" fill="#5ad1c9">← context guard</text>
+    <text x="150" y="27" font-size="12.5" fill="#f2f3f7">nudges reported usage near the window so the client compacts first</text>
+  </g>
 
-  <text x="48" y="490" font-size="12" letter-spacing="2" font-weight="700" fill="#7b8298">THE QUALITY CONTRACT — one risk budget, certified offline, watched live</text>
-  <g transform="translate(48,504)"><rect width="360" height="80" rx="14" fill="url(#acard)" stroke="#2c344a"/>
-    <circle class="dot" cx="26" cy="31" r="6" fill="#8b7bff"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Decision-Equivalence Certificate</text>
-    <text x="20" y="52" font-size="11.5" fill="#9aa0b2">conformal risk control (LTT/CRC) · distribution-free</text>
-    <text x="20" y="69" font-size="11.5" fill="#9aa0b2">P(decision-change ≤ α) ≥ 1 − δ</text>
+  <!-- recovery loop: ONE continuous dotted line, provider → expand → agent. -->
+  <path class="loop" d="M1096,236 C1096,540 900,562 600,562 C300,562 104,500 104,210" fill="none" stroke="#5ad19a" stroke-width="2.6" stroke-dasharray="0.1 8" stroke-linecap="round" marker-end="url(#aarb)"/>
+  <rect x="352" y="550" width="496" height="24" rx="12" fill="#0a0b12" stroke="#5ad19a"/>
+  <text x="600" y="567" text-anchor="middle" font-size="12.5" fill="#7fe6ad">response → transparent expand loop → agent (it just gets the right answer)</text>
+
+  <text x="24" y="600" font-size="12" letter-spacing="2" font-weight="700" fill="#9aa1b3">THE QUALITY CONTRACT — one risk budget, certified offline, watched live</text>
+  <g transform="translate(24,614)"><rect width="376" height="80" rx="14" fill="url(#acard)" stroke="#8b7bff" stroke-width="1.6"/>
+    <circle class="dot" cx="26" cy="31" r="6" fill="#8b7bff"/><text x="44" y="36" font-size="14" font-weight="700" fill="#f2f3f7">Decision-Equivalence Certificate</text>
+    <text x="20" y="55" font-size="12" fill="#9aa1b3">conformal risk control (LTT/CRC) · distribution-free</text>
+    <text x="20" y="71" font-size="12" fill="#9aa1b3">P(decision-change ≤ α) ≥ 1 − δ</text>
   </g>
-  <g transform="translate(420,504)"><rect width="360" height="80" rx="14" fill="url(#acard)" stroke="#2c344a"/>
-    <circle class="dot" cx="26" cy="31" r="6" fill="#5ad1c9"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Shadow mode → drift alarm</text>
-    <text x="20" y="52" font-size="11.5" fill="#9aa0b2">paired replays feed an anytime-valid e-process</text>
-    <text x="20" y="69" font-size="11.5" fill="#9aa0b2">a proven breach holds the guard at lossless-only</text>
+  <g transform="translate(412,614)"><rect width="376" height="80" rx="14" fill="url(#acard)" stroke="#5ad1c9" stroke-width="1.6"/>
+    <circle class="dot" cx="26" cy="31" r="6" fill="#5ad1c9"/><text x="44" y="36" font-size="14" font-weight="700" fill="#f2f3f7">Shadow mode → drift alarm</text>
+    <text x="20" y="55" font-size="12" fill="#9aa1b3">paired replays feed an anytime-valid e-process</text>
+    <text x="20" y="71" font-size="12" fill="#9aa1b3">a proven breach holds the guard at lossless-only</text>
   </g>
-  <g transform="translate(792,504)"><rect width="360" height="80" rx="14" fill="url(#acard)" stroke="#2c344a"/>
-    <circle class="dot" cx="26" cy="31" r="6" fill="#5ad19a"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Learned keep-model — flywheel</text>
-    <text x="20" y="52" font-size="11.5" fill="#9aa0b2">every expand is a label; only ever gets</text>
-    <text x="20" y="69" font-size="11.5" fill="#9aa0b2">more conservative — never-regressing</text>
+  <g transform="translate(800,614)"><rect width="376" height="80" rx="14" fill="url(#acard)" stroke="#5ad19a" stroke-width="1.6"/>
+    <circle class="dot" cx="26" cy="31" r="6" fill="#5ad19a"/><text x="44" y="36" font-size="14" font-weight="700" fill="#f2f3f7">Learned keep-model — flywheel</text>
+    <text x="20" y="55" font-size="12" fill="#9aa1b3">every expand is a label; only ever gets</text>
+    <text x="20" y="71" font-size="12" fill="#9aa1b3">more conservative — never-regressing</text>
   </g>
 </svg>

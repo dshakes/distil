@@ -60,19 +60,30 @@ all reach the same tier:
     shape, and the primary doc each routing contract was verified against. The
     agents distil can NOT reach are on that same list with the reason, rather
     than given a guessed variable that would route nothing while reporting
-    success. One preset is itself unverified: codex speaks the Responses wire
-    shape, but codex-rs reads its base URL from the `openai_base_url` config key
-    and no mapping from OPENAI_BASE_URL was found, so it may route nothing.
+    success. codex (codex-cli 0.142+) ignores OPENAI_BASE_URL and would open the
+    Responses API over a WebSocket, so `wrap codex` passes session-only
+    `-c model_provider=...` overrides with `supports_websockets=false`, forcing
+    HTTP through the proxy; the proxy answers a WebSocket upgrade with 426. A
+    codex signed in with ChatGPT (chatgpt.com/backend-api/codex) cannot be
+    routed, and wrap says so. `onboard --always-on` cannot route codex.
     `distil wrap -- claude` also sets ENABLE_TOOL_SEARCH=true so Claude Code keeps
     deferring MCP tool definitions behind the proxy (unverified on a metered
     session so far); distil never rewrites the request `tools` array.
   - HTTP proxy for Anthropic Messages, OpenAI (Chat Completions + the Responses
-    API), Azure OpenAI, and Google Gemini generateContent. Point any base_url
-    client at it. The same provider coverage is in all three servers: the sync
-    proxy, the async proxy, and the standalone gateway.
+    API), Azure OpenAI, Google Gemini generateContent, AWS Bedrock InvokeModel
+    and Google Vertex AI (Anthropic rawPredict, Gemini generateContent). Point
+    any base_url client at it. Bedrock streams (binary eventstream) are Tier-0
+    only; Bedrock Converse is forwarded untouched; SigV4-signed Bedrock requests
+    are refused (the signature covers Host and body; use a Bedrock API key).
+    The same provider coverage is in all three servers: the sync proxy, the
+    async proxy, and the standalone gateway.
   - Python library: `from distil import compress_messages, expand_handle`.
   - TypeScript library: `compress(messages)` from the `distil-llm` npm package,
-    plus `distilMiddleware()` for the Vercel AI SDK's wrapLanguageModel.
+    plus `distilMiddleware()` for the Vercel AI SDK's wrapLanguageModel. A
+    strict-typed TypeScript SDK (`sdk/typescript`, package `distil-sdk`, ADR 0029)
+    adds a provider-discriminated `compress(messages, {provider})` for Anthropic
+    and OpenAI shapes with a content-free receipt; same lossless transforms,
+    byte-identical to the Python engine. Neither does the Tier-1 digest.
 
 Framework hooks (in-process, no network hop): LiteLLM, LangChain, LangGraph,
 Agno, Strands, AutoGen, LlamaIndex, CrewAI. A generic ASGI middleware (distil.integrations.asgi)
@@ -100,7 +111,15 @@ synthetic offline corpus: 83.2% savings at 0% decision-change rate on a head-to-
 against headroom-ai 0.37.0: distil-causal 52.9% tokens / 58.7% dollars at 100%
 decision-equivalence (PASS) vs Headroom 1.7% / 2.0% / 81% (FAIL) on the warm
 corpus gate; on the read->edit->re-read codebench workload Headroom takes 35.6%
-tokens for +4.9% dollars.
+tokens for +4.9% dollars. Offline against headroom-ai 0.42.0 (2026-10-29, 360
+real tool outputs, tokens and fact recall only; not cost or task success,
+benchmarks/results/headroom-0-42-h2h/), Headroom kept more facts visible than
+distil 1.58.0; this release's identifier-line keep moved distil's held-out
+visible recall from 86.1% to 98.4% (Headroom default 92.4%) at 11.0% tokens
+removed (Headroom 7.1%). The visible-recall lead is significant; the token lead
+is not, against Headroom's default or agent-90. Headroom still wins on prose.
+How often an agent then needs distil_expand, and task success, are unmeasured
+(benchmarks/results/visible-recall/).
 
 Two reporting commands read the same content-free local records and answer
 different questions. `distil dissect <session>` is backward-looking and
@@ -168,9 +187,14 @@ runnable:
     so `distil receipts --prove <request-id>` hands an auditor one receipt and
     `--check-proof` verifies it against a pinned checkpoint hash (content,
     segment, position) or a pinned root (membership only).
-  - Opaque provider content: Anthropic `compaction`/`thinking` blocks and OpenAI
+  - Opaque provider content: Anthropic `compaction` blocks and OpenAI
     `reasoning` (encrypted_content) and `compaction` items are forwarded
     byte-identical, pinned by contract tests, and censused rather than hidden.
+    An Anthropic `thinking` block is never altered; on preserved-thinking
+    models (Fable/Mythos 5.1, Opus/Sonnet/Haiku 5.5) its signature binds the
+    prefix before it, so distil freezes that prefix (prefix replay restores
+    decisions), decides each tool result at first sight, and `thinkguard`
+    drops a block whole (never 400s) when its prefix changed (ADR 0028).
 
 Not yet measured live: cold-point recompression (ADR 0014) shrinks older tool
 output only on a turn the provider's cache has certainly expired for; its gate

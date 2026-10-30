@@ -305,6 +305,13 @@ distil proxy --verbatim     --upstream https://api.anthropic.com</pre>
     <h4>Hop-by-hop header stripping</h4>
     <p>The proxy strips connection-specific headers (<code>Connection</code>, <code>Transfer-Encoding</code>, <code>Keep-Alive</code>, etc.) before forwarding. This prevents header injection attacks and ensures clean HTTP/1.1 semantics at the upstream boundary.</p>
 
+    <h4 id="refused">Requests the proxy refuses rather than forwards</h4>
+    <p><b>SigV4-signed Bedrock requests.</b> AWS SigV4 signs the <code>Host</code> header and the body hash, so a signed request cannot survive any proxy hop, compressed or not, and distil holds no AWS credentials to re-sign it (it never will: that would make the proxy a credential store). The proxy, the async proxy and the gateway answer with an error that points at Bedrock API keys (<code>AWS_BEARER_TOKEN_BEDROCK</code>), which sign nothing. <b>WebSocket upgrades</b> reaching the threaded proxy (what <code>distil wrap</code> and <code>distil proxy</code> run) are answered <code>426 Upgrade Required</code> instead of being relayed as a plain <code>GET</code>, so a client that asked for a WebSocket learns it did not get one.</p>
+
+    <h4 id="thinkguard-ledger">Thinking-block ledger is content-free</h4>
+    <p>To keep signed thinking valid, <code>thinkguard</code> records, per forwarded request, hashes of the client-side and forwarded prefix and of each thinking block's signature, in an append-only <code>$DISTIL_HOME/thinkguard.jsonl</code>. Hashes only: no message, thinking text or signature bytes are written. It is compacted past twice its in-memory caps, and a hot-swap peer follows it by offset (<a href="cache.html#thinking-prefix">why it exists</a>).</p>
+
+
     <hr/>
 
     <h3>Data retention and zero-data retention (ZDR)</h3>

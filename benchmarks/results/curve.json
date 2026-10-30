@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-06",
-  "version": "1.51.1",
+  "generated": "2026-10-30",
+  "version": "1.58.0",
   "corpus_trajectories": 9,
   "tokenizer": "HeuristicTokenizer",
   "recall": "macro-average across corpus domains, counting expand-recoverable facts",
@@ -23,7 +23,7 @@
       "visible_recall": 1.0,
       "lost_facts": 0,
       "reversible": true,
-      "latency_ms": 4.85
+      "latency_ms": 4.87
     },
     {
       "rung": "subscription",
@@ -33,17 +33,17 @@
       "visible_recall": 1.0,
       "lost_facts": 0,
       "reversible": true,
-      "latency_ms": 8.91
+      "latency_ms": 10.67
     },
     {
       "rung": "lossless",
       "note": "Tier-1 digest + Tier-0 \u2014 the shipped default",
-      "savings_pct": 46.98,
+      "savings_pct": 45.14,
       "recall": 1.0,
-      "visible_recall": 0.7692,
+      "visible_recall": 0.8247,
       "lost_facts": 0,
       "reversible": true,
-      "latency_ms": 16.73
+      "latency_ms": 23.82
     },
     {
       "rung": "aggressive",
@@ -53,7 +53,7 @@
       "visible_recall": 0.551,
       "lost_facts": 828,
       "reversible": false,
-      "latency_ms": 3.28
+      "latency_ms": 3.18
     }
   ]
 }
