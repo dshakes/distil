@@ -1379,7 +1379,7 @@ def run_live(
 
     from .shadow import decision_signature
 
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    key: str = api_key or os.environ.get("ANTHROPIC_API_KEY") or ""
 
     # Derive flat turns list (for gates and backward compat) from segments if given.
     if segments is not None:
