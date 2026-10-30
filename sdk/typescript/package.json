@@ -1,0 +1,41 @@
+{
+  "name": "distil-sdk",
+  "version": "1.58.0",
+  "description": "In-process lossless compression for Anthropic and OpenAI message lists. Byte-identical to the Python engine.",
+  "keywords": [
+    "llm",
+    "ai-agent",
+    "context-compression",
+    "anthropic",
+    "openai",
+    "token-savings"
+  ],
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
