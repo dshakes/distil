@@ -5700,6 +5700,12 @@ def build_parser() -> argparse.ArgumentParser:
     # Opt-in and capped; hidden from the front door like `distil ab`.
     _register_audit(sub)
 
+    from .replay_model import register as _register_replay_model
+
+    # `distil replay-model` — does a cheaper model make the same decisions on YOUR traffic?
+    # Dry-run is free (sessions metadata only); live requires --spend-cap.
+    _register_replay_model(sub)
+
     dash = sub.add_parser(
         "dashboard",
         help="live dashboard of your savings (terminal, or --web for a browser)",
