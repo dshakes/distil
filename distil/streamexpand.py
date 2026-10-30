@@ -123,6 +123,7 @@ def stream_with_expand(
     usage_sink: dict[str, int] | None = None,
     max_iters: int = 4,
     on_signal: Callable[[str, str], None] | None = record_signal,
+    on_usage_nudge: Callable[[dict[str, Any]], None] | None = None,
 ) -> int:
     """Relay a streaming response, transparently resolving ``distil_expand`` calls.
 
@@ -170,6 +171,13 @@ def stream_with_expand(
                 etype = evt.get("type")
                 if etype == "message_start":
                     if client.start_once():
+                        if on_usage_nudge is not None:
+                            u = (evt.get("message") or {}).get("usage")
+                            if isinstance(u, dict):
+                                try:
+                                    on_usage_nudge(u)
+                                except Exception:  # noqa: BLE001
+                                    pass
                         client.write(evt)  # only the FIRST message_start reaches the client
                     if usage_sink is not None:
                         # EVERY upstream message is billed, not only the first: each
@@ -251,7 +259,15 @@ def stream_with_expand(
                 # re-requests the handle on its next turn, where the turn is expand-only
                 # and the loop below can serve it safely.
                 if final_delta is not None:
-                    client.write(_with_output_tokens(final_delta, usage_out))
+                    out_evt = _with_output_tokens(final_delta, usage_out)
+                    if on_usage_nudge is not None:
+                        u = out_evt.get("usage")
+                        if isinstance(u, dict):
+                            try:
+                                on_usage_nudge(u)
+                            except Exception:  # noqa: BLE001
+                                pass
+                    client.write(out_evt)
                 client.write({"type": "message_stop"})
                 client.close()
                 if usage_sink is not None:
@@ -262,7 +278,7 @@ def stream_with_expand(
             resp_dict = {"content": [blocks[i] for i in sorted(blocks)]}
             results = resolve_expands(resp_dict, store, on_signal=on_signal)
             if not results:  # nothing resolvable — stop cleanly rather than loop
-                _close_stream(client, final_delta, usage_out, usage_sink)
+                _close_stream(client, final_delta, usage_out, usage_sink, on_usage_nudge)
                 return status
             body = {
                 **body,
@@ -281,11 +297,11 @@ def stream_with_expand(
                 # TRUNCATED message to the SDK, which retries it invisibly — wall-clock
                 # burned with no progress and no error the user can see. Fail open to
                 # what was already relayed.
-                _close_stream(client, final_delta, usage_out, usage_sink)
+                _close_stream(client, final_delta, usage_out, usage_sink, on_usage_nudge)
                 return getattr(resp, "status", 502)
 
         # max_iters exhausted — close the stream (a misbehaving model can't spin forever)
-        _close_stream(client, final_delta, usage_out, usage_sink)
+        _close_stream(client, final_delta, usage_out, usage_sink, on_usage_nudge)
         return status
     except OSError:
         handler.close_connection = True
@@ -330,6 +346,7 @@ def _close_stream(
     final_delta: dict[str, Any] | None,
     usage_out: int,
     usage_sink: dict[str, int] | None,
+    on_usage_nudge: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     """End the SSE message properly, then close.
 
@@ -340,7 +357,15 @@ def _close_stream(
     invisible hang into a completed (possibly short) turn the agent can act on.
     """
     if final_delta is not None:
-        client.write(_with_output_tokens(final_delta, usage_out))
+        out_evt = _with_output_tokens(final_delta, usage_out)
+        if on_usage_nudge is not None:
+            u = out_evt.get("usage")
+            if isinstance(u, dict):
+                try:
+                    on_usage_nudge(u)
+                except Exception:  # noqa: BLE001
+                    pass
+        client.write(out_evt)
     client.write({"type": "message_stop"})
     client.close()
     if usage_sink is not None:

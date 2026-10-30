@@ -31,7 +31,23 @@ DEFAULT_OPENAI_MODEL = "gpt-5.2"
 #: Model ids distil routes but deliberately does NOT price: ``resolve()`` returns None
 #: for them and callers count their tokens unweighted (never at Claude rates). Empty since
 #: the OpenAI and Gemini rows below: kept so a model can be routed before it is priced.
-UNPRICED: frozenset[str] = frozenset()
+UNPRICED: frozenset[str] = frozenset(
+    {
+        # These are prefix keys in distil/context_guard.CONTEXT_WINDOWS used for context-window
+        # lookup, not billing.  The full model IDs (e.g. claude-opus-4-5, gemini-2.5-pro) are
+        # priced in CATALOG above; these shorter prefixes must not be priced as standalone IDs.
+        "claude-opus-4",
+        "claude-sonnet-4",
+        "claude-haiku-4",
+        "claude-haiku-5",
+        "gpt-6",
+        "gpt-5.6",
+        "gpt-5.3",
+        "gemini-3",
+        "gemini-2.5",
+        "gemini-2",
+    }
+)
 
 
 @dataclass(frozen=True)

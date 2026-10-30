@@ -1222,6 +1222,14 @@ def build_handler(
             new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
 
+            # Context guard parameters (computed once; used across all relay paths below).
+            # tokens_saved is the message-level compression delta; beta_header tells the
+            # guard whether the client has a context-1m entitlement.
+            _guard_tokens_saved = max(0, (before_tok or 0) - (after_tok or 0))
+            _guard_beta = next(
+                (v for k, v in headers.items() if k.lower() == "anthropic-beta"), None
+            )
+
             # Decide shadow sampling BEFORE relaying so the marker header can be
             # sent on the streaming path too (headers go out before the body).
             shadow_sampled = (
@@ -1313,6 +1321,12 @@ def build_handler(
                     )
 
                 _usage_x: dict[str, int] = {}
+
+                def _nudge_usage_x(u: dict[str, Any]) -> None:
+                    from . import context_guard as _cg
+
+                    _cg.nudge_usage(u, _guard_tokens_saved, _span_model, beta_header=_guard_beta)
+
                 with request_span(_span_model, self.path) as _span:
                     status_x = stream_with_expand(
                         self,
@@ -1323,6 +1337,7 @@ def build_handler(
                         extras=extras,
                         usage_sink=_usage_x,
                         on_signal=_on_signal,
+                        on_usage_nudge=_nudge_usage_x,
                     )
                     # After the splice, not before: the response headers were flushed the
                     # moment the first upstream frame arrived, which is before any expand
@@ -1376,6 +1391,16 @@ def build_handler(
                 from .streamrelay import stream_upstream
 
                 _usage_s: dict[str, int] = {}
+                from . import context_guard as _cg_s
+
+                _stream_guard = _cg_s.StreamGuard(
+                    _guard_tokens_saved, _span_model, beta_header=_guard_beta
+                )
+
+                def _on_stream_error(code: int, rbody_err: bytes) -> None:
+                    if code == 400:
+                        _cg_s.learn_from_error(_span_model, rbody_err, beta_header=_guard_beta)
+
                 with request_span(_span_model, self.path) as _span:
                     status_s, _rbody_opt = stream_upstream(
                         self,
@@ -1387,6 +1412,8 @@ def build_handler(
                         extras=extras,
                         want_body=False,  # v3 shadow re-issues its own temp-0 calls; no need to buffer
                         usage_sink=_usage_s,
+                        chunk_transform=_stream_guard,
+                        on_upstream_error=_on_stream_error,
                     )
                     set_result_attrs(
                         _span,
@@ -1517,12 +1544,32 @@ def build_handler(
                 _bt, _at, _m = _pending_savings
                 savings.record(_bt, _at + requery_input_equiv(_usage_b, _m), model=_m)
                 savings.maybe_flush(every=flush_every)
+            # Context guard: learn from "prompt is too long" errors; nudge usage
+            # on 2xx so the client compacts before hitting the wall. Both are
+            # fail-open — a parsing error leaves rbody/rhdrs unmodified.
+            if status == 400:
+                from . import context_guard as _cg_b
+
+                _cg_b.learn_from_error(_span_model, rbody, beta_header=_guard_beta)
             if _sse_shape is not None and 200 <= status < 300:
                 # The client asked for a stream and we buffered to run the expand
                 # loop; hand the finished answer back in the wire format it expects.
+                # Nudge usage in the JSON body BEFORE sse_body converts it to SSE
+                # so the synthetic SSE stream carries the inflated values.
+                from . import context_guard as _cg_b
+
+                rbody = _cg_b.nudge_body(
+                    rbody, _guard_tokens_saved, _span_model, beta_header=_guard_beta
+                )
                 _sse = sse_body(_sse_shape, rhdrs, rbody)
                 if _sse is not None:
                     rhdrs, rbody = _sse
+            elif 200 <= status < 300:
+                from . import context_guard as _cg_b
+
+                rbody = _cg_b.nudge_body(
+                    rbody, _guard_tokens_saved, _span_model, beta_header=_guard_beta
+                )
             self._relay(status, rhdrs, rbody, extras=extras)
 
         def _emit_detail(
