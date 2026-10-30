@@ -1382,3 +1382,82 @@ def test_dry_run_format_includes_coverage_note() -> None:
     text = report.format()
     # Coverage fraction should appear somewhere in the (c) block
     assert "%" in text or "coverage" in text.lower()
+
+
+# --------------------------------------------------------------------------- #
+# CLI wiring (offline: no provider call is ever made here)
+# --------------------------------------------------------------------------- #
+
+
+def _parse(argv: list[str]):
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    rm.register(parser.add_subparsers())
+    return parser.parse_args(["replay-model", *argv])
+
+
+def _turn(ok: bool = True) -> rm.TranscriptTurn:
+    msgs = [{"role": "user", "content": "hi"}] if ok else []
+    return rm.TranscriptTurn(msgs, "text", "claude-opus-5-5", 12_000, 300, time.time())
+
+
+def test_register_parses_every_flag() -> None:
+    a = _parse(
+        ["--target", "m", "--n", "5", "--n-aa", "3", "--days", "2", "--preflight", "--json"]
+        + ["--sessions", "4", "--turns-per-segment", "2", "--max-context-tokens", "9000"]
+    )
+    assert (a.target, a.n, a.n_aa, a.days, a.sessions) == ("m", 5, 3, 2.0, 4)
+    assert a.preflight and a.json and not a.live and a.func is rm.cmd_replay_model
+    assert (a.turns_per_segment, a.max_context_tokens, a.spend_cap) == (2, 9000, None)
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_cmd_dry_run_prints_a_report(monkeypatch, capsys, as_json) -> None:
+    monkeypatch.setattr(rm, "load_records", lambda n, since, rng: [_record() for _ in range(5)])
+    argv = ["--n", "5"] + (["--json"] if as_json else [])
+    assert rm.cmd_replay_model(_parse(argv)) == 0
+    out = capsys.readouterr().out
+    if as_json:
+        assert "arm_b_usd" in json.loads(out)
+    else:
+        assert out.strip()
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_cmd_preflight_without_a_key_skips_count_tokens(monkeypatch, capsys, as_json) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        rm, "load_transcript_turns", lambda n, since, rng: [_turn(), _turn(), _turn(False)]
+    )
+    argv = ["--preflight", "--n", "3"] + (["--json"] if as_json else [])
+    assert rm.cmd_replay_model(_parse(argv)) == 0
+    cap = capsys.readouterr()
+    assert "2/3 pass" in cap.err and "skipping count_tokens" in cap.err
+    assert ("arm_b_usd" in json.loads(cap.out)) if as_json else ("--live" in cap.out)
+
+
+def test_cmd_preflight_with_sessions_and_nothing_valid(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cov = {"request_coverage_frac": 0.5, "token_coverage_frac": 0.25}
+    monkeypatch.setattr(rm, "load_transcript_segments", lambda *a, **k: ([[_turn(False)]], cov))
+    argv = ["--preflight", "--sessions", "1", "--max-context-tokens", "1000"]
+    assert rm.cmd_replay_model(_parse(argv)) == 1
+    cap = capsys.readouterr()
+    assert "covers 50.0% of requests" in cap.out
+    assert "all turns failed structural validation" in cap.err
+
+
+def test_cmd_preflight_with_no_turns_returns_1(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(rm, "load_transcript_turns", lambda n, since, rng: [])
+    assert rm.cmd_replay_model(_parse(["--preflight"])) == 1
+    assert "no usable transcript turns" in capsys.readouterr().err
+
+
+def test_cmd_preflight_count_tokens_gate_rejects_everything(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-not-a-key")
+    monkeypatch.setattr(rm, "load_transcript_turns", lambda n, since, rng: [_turn()])
+    monkeypatch.setattr(rm, "preflight_count_tokens", lambda t, target, api_key: ([], 0, len(t)))
+    assert rm.cmd_replay_model(_parse(["--preflight"])) == 1
+    err = capsys.readouterr().err
+    assert "0/1 pass" in err and "0 turns passed both gates" in err
