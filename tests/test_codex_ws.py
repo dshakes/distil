@@ -88,6 +88,7 @@ def _fake_codex(tmp_path):
     return str(script)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="shebang fake codex is POSIX-only")
 @pytest.mark.parametrize(
     "tail", [["exec", "--", "prompt"], ["prompt"], ["exec", "-m", "x", "prompt"]]
 )
