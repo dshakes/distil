@@ -229,6 +229,7 @@ def _cold_plan(
             held=held,
             ttl=_coldpoint.openai_request_ttl(body) if openai else None,
             extend=None if extend is None else functools.partial(extend, items),
+            provider="openai" if openai else "anthropic",
         )
     except Exception:  # noqa: BLE001 — never break a request for a saving
         log.debug("cold-point plan failed; compressing as usual", exc_info=True)
@@ -575,6 +576,10 @@ def compress_or_forward(
             from . import thinkguard as _tg
 
             body = _tg.guard(client_body, body, scope=scope, extras=extras)
+            if cold_key is not None and "x-distil-thinking-dropped" in extras:
+                # A dropped thinking block is distil's own prefix edit: this turn's cache
+                # miss says nothing about the provider's TTL (ttl_estimator).
+                _coldpoint.note_rewrite(cold_key)
     except BaseException:
         # A planned lineage is in flight until end(); a raise after plan() would leave it
         # in flight forever (never cold again). The caller never sees the key, so close it.

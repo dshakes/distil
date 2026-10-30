@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
+from . import ttl_estimator
 from .prefixreplay import canonical
 from .pricing import CACHE_TTL_S
 from .pricing import resolve as resolve_price
@@ -112,6 +113,11 @@ class _State:
     evicted: frozenset[str] = frozenset()
     ambiguous: bool = False
     pending: bool = False  # a cold turn's eviction deferred to the next turn boundary
+    provider: str = "anthropic"
+    model: str = ""
+    # (idle gap, this turn evicted fresh ids) of the latest request, for `observe`; None when
+    # the gap is not a clean idle measurement (first-seen, ambiguous, something in flight).
+    probe: tuple[float, bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -347,6 +353,7 @@ def plan(
     now: float | None = None,
     ttl: float | None = None,
     extend: Callable[[frozenset[str]], frozenset[str] | None] | None = None,
+    provider: str = "anthropic",
 ) -> Plan:
     """Decide this request's eviction set and mark the lineage in flight.
 
@@ -354,13 +361,17 @@ def plan(
     that talks to the provider) is finished. *candidates* is called only on a cold turn,
     outside the lock. *held* is the drift guard's hook: a held lineage keeps applying the
     set it has but decides nothing new. *ttl* overrides the Anthropic ``cache_control``
-    reading for a provider without one (:func:`openai_request_ttl`).
+    reading for a provider without one (:func:`openai_request_ttl`). The TTL waited out is
+    the documented one extended by what :mod:`ttl_estimator` has learned for (*provider*,
+    model, ttl class) — never shortened.
 
     *extend(fresh)* names what else must go for *fresh* to be a legal edit (the thinking
     blocks after it on a preserved-thinking model), or returns None: not on this turn. The
     eviction is then deferred — nothing new now, and every later turn retries until one
     accepts it (``deferred-cold``), cache warm or not: the edit had to wait, and the saving
-    it buys lasts the rest of the session.
+    it buys lasts the rest of the session. A pending retry is still never ``cold`` before
+    the learned TTL runs out; it is reported ``deferred-cold`` and, like any turn on which
+    distil itself edits the prefix, its cache miss is not evidence for the estimator.
     """
     now = _clock() if now is None else now
     ttl = request_ttl(body) if ttl is None else ttl
@@ -377,6 +388,8 @@ def plan(
                 ttl=ttl,
                 inflight=1,
                 evicted=persisted,
+                provider=provider,
+                model=str(body.get("model") or ""),
             )
             while len(_STATES) > _MAX_LINEAGES:
                 _STATES.popitem(last=False)
@@ -387,6 +400,9 @@ def plan(
         extends = 0 < st.n <= len(messages) and _sig(messages[st.n - 1]) == st.tail
         st.ambiguous = st.ambiguous or not extends
         st.ttl = max(st.ttl, ttl)
+        st.provider, st.model = provider, str(body.get("model") or st.model)
+        idle = now - st.last
+        eff_ttl = ttl_estimator.effective_ttl(st.provider, st.model, st.ttl)
         if st.ambiguous:
             reason = "ambiguous"
         elif st.inflight:
@@ -395,12 +411,13 @@ def plan(
             reason = "held"
         elif math.isinf(st.ttl):
             reason = "unknown-ttl"
-        elif now - st.last > st.ttl + MARGIN_S:
+        elif idle > eff_ttl + MARGIN_S:
             reason = "cold"
         elif st.pending:
             reason = "deferred-cold"
         else:
             reason = "warm"
+        st.probe = None if reason in ("ambiguous", "inflight") else (idle, False)
         st.last = max(st.last, now)
         st.n = len(messages)
         st.tail = _sig(messages[-1]) if messages else ""
@@ -422,9 +439,35 @@ def plan(
         fresh = fresh | (more - before)
         st.evicted = st.evicted | fresh
         evict = st.evicted
+        if st.probe is not None and fresh:
+            st.probe = (st.probe[0], True)
     if fresh:
         _persist(key, evict)
     return Plan(evict, reason, len(fresh))
+
+
+def observe_usage(key: str, cache_read: int) -> None:
+    """Feed the provider-reported cached-token count of this lineage's latest request into
+    the TTL estimator (Anthropic ``cache_read_input_tokens``, OpenAI/Gemini ``cached_tokens``).
+    Call once per request, after its usage is known. Fail-open."""
+    with _LOCK:
+        st = _STATES.get(key)
+        probe, st_ttl = (st.probe, st.ttl) if st is not None else (None, 0.0)
+        prov, model = (st.provider, st.model) if st is not None else ("", "")
+        if st is not None:
+            st.probe = None
+    if probe is not None:
+        ttl_estimator.observe(prov, model, st_ttl, probe[0], cache_read, evicted=probe[1])
+
+
+def note_rewrite(key: str) -> None:
+    """distil itself changed this lineage's cached prefix on its latest request outside a
+    cold-point eviction (thinkguard dropped a thinking block, ADR 0028), so a cache miss on
+    it proves nothing about the provider's TTL: :func:`observe_usage` discards the miss."""
+    with _LOCK:
+        st = _STATES.get(key)
+        if st is not None and st.probe is not None:
+            st.probe = (st.probe[0], True)
 
 
 def _touch(key: str, delta: int, now: float | None) -> None:
