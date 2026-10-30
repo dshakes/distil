@@ -56,7 +56,7 @@ def test_names_and_arm_meta_record_the_pinned_version():
     )
     a = hr.headroom_arm("http://127.0.0.1:1", lambda u: NS(base_url=u), {})
     assert a.client.base_url == "http://127.0.0.1:1" and not a.transform and not a.tools
-    assert a.meta["library"] == "headroom-ai" and a.meta["version"] == hr.HR_VERSION == "0.40.0"
+    assert a.meta["library"] == "headroom-ai" and a.meta["version"] == hr.HR_VERSION == "0.42.0"
 
 
 def test_probe_refuses_missing_broken_or_wrong_version(tmp_path):
