@@ -71,6 +71,7 @@ lying.
 | **Kilo Code CLI** | `distil wrap -- kilo` | env var | `KILO_CONFIG_CONTENT` | [source](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md) (2026-09-16) |
 | **Kimi CLI** | `distil wrap -- kimi` | env var | `KIMI_BASE_URL` | [source](https://moonshotai.github.io/kimi-cli/configuration/) (2026-09-24) |
 | **Mistral Vibe** | `distil wrap -- vibe` | env var | `VIBE_PROVIDERS` | [source](https://github.com/mistralai/mistral-vibe/blob/main/docs/adr/0005-layered-configuration.md) (2026-09-16) |
+| **OpenClaude** | `distil wrap -- openclaude` | env var | `OPENAI_BASE_URL` | [source](https://github.com/Gitlawb/openclaude#readme) (2026-10-29) |
 | **OpenCode** | `distil wrap -- opencode` | env var | `OPENAI_BASE_URL` | [source](https://opencode.ai/docs/providers/) (2026-09-24) |
 | **OpenHands** | `distil wrap -- openhands` | env var | `LLM_BASE_URL` | [source](https://docs.all-hands.dev/usage/how-to/cli-mode) (2026-09-16) |
 | **Qwen Code** | `distil wrap -- qwen` | env var | `OPENAI_BASE_URL` | [source](https://github.com/QwenLM/qwen-code#readme) (2026-09-16) |
