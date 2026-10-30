@@ -121,9 +121,11 @@ function stripJsonStrings(src: string): string {
  */
 function unsafeJsonReason(src: string): string | null {
   const bare = stripJsonStrings(src);
-  const nums = bare.match(/-?\d+\.\d+/g) ?? [];
+  // The fraction is optional so every match consumes a whole digit run: linear
+  // time, no retry from each start position of a long digit string (ReDoS).
+  const nums = bare.match(/-?\d+(?:\.\d+)?/g) ?? [];
   for (const n of nums) {
-    if (Number.isInteger(Number(n))) {
+    if (n.includes(".") && Number.isInteger(Number(n))) {
       return "integral float renders differently in Python and JS";
     }
   }
