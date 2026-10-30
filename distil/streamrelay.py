@@ -313,7 +313,8 @@ def stream_upstream(
         # without threading a return value through every streaming call site.
         handler._distil_ratelimit = capture_ratelimit(resp.headers)  # type: ignore[attr-defined]
         length = resp.headers.get("Content-Length")
-        chunked = length is None
+        # A transform may change the byte count, so an upstream length can't be relayed.
+        chunked = length is None or chunk_transform is not None
         handler.send_response(resp.status)
         for k, v in resp.headers.items():
             if k.lower() not in hop_by_hop:
