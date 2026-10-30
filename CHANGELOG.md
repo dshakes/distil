@@ -7,7 +7,62 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+### Added
+- **Bedrock InvokeModel and Vertex AI routes** (Anthropic `rawPredict`, Gemini `generateContent`)
+  compress and book savings like the direct providers; the model comes from the URL and Bedrock
+  cross-region profile ids (`us.anthropic...`) are priced. Bedrock streams (binary eventstream)
+  are Tier-0 only and relayed unchanged, with usage read from the frames. Converse is forwarded
+  untouched. SigV4-signed Bedrock requests are refused by proxy, gateway and aproxy (the signature
+  covers Host and body; distil holds no AWS credentials): use a Bedrock API key. The
+  preserved-thinking guards below key on the URL model on these routes too.
+- **First sight on preserved-thinking sessions** (ADR 0028 addendum 3). With thinking on, each
+  tool result is decided (digest, recoverable via `distil_expand`) in the request where it first
+  appears and the freeze keeps that decision, instead of a recency-exempt result staying verbatim
+  forever. Needs a lossy mode, the expand tool and prefix replay; shadow rows book as
+  `digest-first-sight`. Kill switch `DISTIL_FIRST_SIGHT=0`.
+- **Context guard.** When the original (uncompressed) context crosses 90% of the model's window,
+  the usage distil reports to the client is nudged to ~95% of it, so Claude Code auto-compacts
+  before a cold or lossless-only turn sends the full context into a "prompt is too long" 400.
+  Limits are learned from provider 400s (`~/.distil/context_guard.json`, 1 h TTL). Kill switch
+  `DISTIL_CONTEXT_GUARD=0`.
+- **Learned cache TTL for cold point** (`distil/ttl_estimator.py`). Cache reads after an idle gap
+  teach a per-(provider, model, TTL class) lower bound; after 3 hits cold point waits out
+  `max(documented, learned)`. Extend-only: never declares a cache cold earlier than the documented
+  TTL, and a miss on a turn where distil itself rewrote the prefix (an eviction or a dropped
+  thinking block) is not counted.
+- **Loop / re-fetch detector** (`distil/loops.py`). Counts the newest round's repeated tool calls
+  (identical, re-read, re-run) and which followed a distil stub; surfaced in `distil dissect` and
+  fed to the learned keep policy. Content-free.
+- **TypeScript SDK** (`sdk/typescript`, ADR 0029): in-process `compress(messages, {provider})` for
+  Anthropic and OpenAI shapes with a content-free receipt; a pure-TS port of the Tier-0 transforms,
+  byte-identical to the Python engine (`tests/test_ts_sdk_conformance.py`).
+- **CrewAI tool wrapper, OpenClaude wrap preset, per-project savings.** `distil.integrations.crewai`
+  (`wrap_tools` / `compress_tool_output`); `distil wrap openclaude`; ledger rows carry the wrap's
+  project (`DISTIL_PROJECT`), with a "by project" breakdown in the summary and dashboard.
+- **`distil replay-model`**: dry-run plans and a paired A/A'/B live equivalence test of a cheaper
+  model on your own Claude Code transcripts, with prompt-caching economics, session-segment
+  sampling and cluster-bootstrap CIs. Haiku 5.5 is priced per call from `pricing.TIERED` (its
+  >100k tier bills every token at 5x), never at one CATALOG rate.
+- **Research: distil vs Headroom 0.42.0 head-to-head** (`benchmarks/results/headroom-0-42-h2h`):
+  offline, pre-registered, $0 — tokens, fact recall, cache $, latency and reversibility on real
+  Claude Code tool output; the Headroom SWE-bench arm is pinned to 0.42.0.
+
+### Changed
+- **Facts stay in view.** The Tier-1 digest keeps the densest identifier lines (paths, URLs, SHAs,
+  `key=value`) within 10% of the block, the cold-point stub keeps one must-keep line per shape, and
+  XML / JSON envelopes are no longer stripped as HTML chrome. Visible recall on the held-out
+  Headroom h2h half: default 86.1% -> 98.4%, aggressive 55.4% -> 88.7%
+  (`benchmarks/results/visible-recall`).
+
 ### Fixed
+- **No prefix edit reaches a preserved-thinking block** (Fable/Mythos 5.1, Opus/Sonnet/Haiku 5.5;
+  ADR 0028). A thinking block's signature binds everything before it, and distil could rewrite
+  that prefix (cold-point eviction, recency exit, intent change, quote-guard widening, drift-guard
+  hold flips, output shaping, fail-open turns, restart, the expand loop's hidden round) — a 400 on
+  current accounts. Cold-point evictions now take the thinking after them along (or defer to the
+  next turn boundary) and stay evicted; prefix replay freezes decisions on these lineages; output
+  shaping is off for them; and the new `thinkguard` verifies every forwarded thinking block against
+  its production prefix and drops from the first failure onward instead of 400ing.
 - **Codex silently bypassed `distil wrap`.** codex-cli 0.142 ignores `OPENAI_BASE_URL` and opens
   the Responses API over WebSocket (`GET /v1/responses` + Upgrade). `wrap codex` now passes
   session-only `-c model_provider=...` overrides (leading, before any `--`/prompt) with
@@ -15,14 +70,9 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
   (chatgpt.com/backend-api/codex) cannot be routed; `wrap` now says so instead of pretending.
   The proxy answers a WebSocket upgrade with 426 rather than relaying it as a plain GET.
   `onboard --always-on` cannot route codex (env-only); the default alias mode can.
-
-### Added
-- **Bedrock InvokeModel and Vertex AI routes** (Anthropic `rawPredict`, Gemini `generateContent`)
-  compress and book savings like the direct providers; the model comes from the URL and Bedrock
-  cross-region profile ids (`us.anthropic...`) are priced. Bedrock streams (binary eventstream)
-  are Tier-0 only and relayed unchanged, with usage read from the frames. Converse is forwarded
-  untouched. SigV4-signed Bedrock requests are refused by proxy, gateway and aproxy (the signature
-  covers Host and body; distil holds no AWS credentials): use a Bedrock API key.
+- **Parallel subagent fan-out** keeps per-conversation cache state apart under one shared
+  `DISTIL_SESSION` (cold point, prefix replay and cache delta key on a conversation fingerprint);
+  now guarded by an interleaving regression test.
 
 ## [1.58.0] — 2026-10-07 — the referee, turned on itself: a confound corrected, every provider at parity, shell output at the source
 
