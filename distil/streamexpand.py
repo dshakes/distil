@@ -124,6 +124,7 @@ def stream_with_expand(
     max_iters: int = 4,
     on_signal: Callable[[str, str], None] | None = record_signal,
     on_usage_nudge: Callable[[dict[str, Any]], None] | None = None,
+    model: str | None = None,
 ) -> int:
     """Relay a streaming response, transparently resolving ``distil_expand`` calls.
 
@@ -132,7 +133,8 @@ def stream_with_expand(
     ``http.client``/``urllib`` response). Returns the final HTTP status.
 
     The first upstream response's headers are relayed to the client; on a non-2xx or a
-    non-SSE first response the body is relayed unchanged (no interception).
+    non-SSE first response the body is relayed unchanged (no interception). *model* names
+    the model when the body does not (Vertex carries it in the URL).
     """
     from .streamrelay import capture_ratelimit
 
@@ -242,7 +244,7 @@ def stream_with_expand(
 
             if it:
                 # A continuation's thinking is signed over the hidden round (ADR 0028).
-                _taint(body, list(blocks.values()))
+                _taint(body, list(blocks.values()), model)
 
             if not saw_expand or saw_client_tool_use:
                 # Terminal turn: emit the (usage-corrected) message_delta + message_stop.

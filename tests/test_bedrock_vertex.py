@@ -246,3 +246,38 @@ def test_sigv4_refused_by_gateway_and_aproxy():
             assert resp.status == 400 and "AWS_BEARER_TOKEN_BEDROCK" in await resp.text()
 
     asyncio.run(go())
+
+
+def test_hosted_paths_get_the_preserved_thinking_guarantees(monkeypatch):
+    """Bedrock/Vertex carry the model in the URL. The ADR 0028 guards key on the model, so
+    without it a preserved-thinking conversation on these routes would get no thinkguard,
+    no freeze and no cold-point deferral. The forwarded body must still omit `model`."""
+    from distil import serve_core, thinkguard
+
+    br = "/model/us.anthropic.claude-opus-5-5-v1%3A0/invoke"
+    vx = "/v1/projects/p/locations/l/publishers/anthropic/models/claude-opus-5-5@x:rawPredict"
+    assert serve_core.with_url_model({"messages": []}, br)[0]["model"].endswith("-v1:0")
+    assert serve_core.with_url_model({"messages": []}, vx)[0]["model"] == "claude-opus-5-5@x"
+    b = {"model": "m", "messages": []}
+    assert serve_core.with_url_model(b, br) == (b, False)
+    assert serve_core.with_url_model({"messages": []}, "/v1/messages")[1] is False
+
+    seen: list[str] = []
+    real = thinkguard.guard
+
+    def spy(client, fwd, **kw):
+        seen.append(str(fwd.get("model")))
+        return real(client, fwd, **kw)
+
+    monkeypatch.setattr(thinkguard, "guard", spy)
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 64,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    out = serve_core.compress_or_forward(
+        body, br, count=lambda m: 1, verbatim=True, expand=False, mode="lossless"
+    )
+    assert out is not None and "model" not in out.body
+    assert seen == ["us.anthropic.claude-opus-5-5-v1:0"]

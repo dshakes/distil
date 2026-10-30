@@ -209,6 +209,23 @@ def _is_hosted_anthropic_path(path: str) -> bool:
     return path.startswith("/model/") or "/publishers/anthropic/" in path
 
 
+def with_url_model(body: dict[str, Any], path: str) -> tuple[dict[str, Any], bool]:
+    """``(body, injected)``: a Bedrock/Vertex Anthropic body with its URL model copied into
+    ``model``, so every preserved-thinking decision (ADR 0028: thinkguard, cold-point
+    deferral, the freeze) sees the same model the direct API would name. *injected* says
+    the caller must drop ``model`` again before forwarding (Bedrock rejects unknown keys)."""
+    p = strip_query(path)
+    if body.get("model") or not _is_hosted_anthropic_path(p):
+        return body, False
+    m = _model_from_path(p)
+    return ({**body, "model": m}, True) if m else (body, False)
+
+
+def without_model(body: dict[str, Any]) -> dict[str, Any]:
+    """Undo :func:`with_url_model` on the body about to be forwarded."""
+    return {k: v for k, v in body.items() if k != "model"}
+
+
 def _cold_plan(
     scope: str,
     body: dict[str, Any],
@@ -302,6 +319,7 @@ def compress_or_forward(
     cold_plan: Any = None  # ADR 0014 plan, when cold-point runs on this shape
     cold_kw: dict[str, Any] = {}
     first_kw: dict[str, Any] = {}  # {"first_sight": True} on a first-sight lineage
+    url_model = False  # `model` copied in from a Bedrock/Vertex URL; dropped before return
     _path = strip_query(path)
 
     try:
@@ -360,6 +378,9 @@ def compress_or_forward(
             # always names its ``anthropic_version``, is ours to rewrite.
             and (not _is_hosted_anthropic_path(_path) or "anthropic_version" in body)
         ):
+            # Bedrock/Vertex name the model in the URL; the thinking guarantees key on it.
+            body, url_model = with_url_model(body, _path)
+            client_body = body
             original: list[dict[str, Any]] = body["messages"]
             replay_key, replay_orig = "messages", original
             # Counted BEFORE anything stateful so a quota rejection (admit) leaves the
@@ -601,6 +622,8 @@ def compress_or_forward(
                 # A dropped thinking block is distil's own prefix edit: this turn's cache
                 # miss says nothing about the provider's TTL (ttl_estimator).
                 _coldpoint.note_rewrite(cold_key)
+        if url_model:
+            body = without_model(body)
     except BaseException:
         # A planned lineage is in flight until end(); a raise after plan() would leave it
         # in flight forever (never cold again). The caller never sees the key, so close it.
@@ -663,7 +686,8 @@ def run_expand(
         # Chat Completions shares the ``messages`` key with Anthropic but not the
         # tool-call shape: the answer goes back as a role:"tool" message.
         return run_expand_loop_chat(body, resp_json, store, post, on_signal=on_signal)
-    return run_expand_loop(body, resp_json, store, post, on_signal=on_signal)
+    model = with_url_model(body, path)[0].get("model")
+    return run_expand_loop(body, resp_json, store, post, on_signal=on_signal, model=model)
 
 
 def sse_body(

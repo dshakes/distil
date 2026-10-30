@@ -286,6 +286,8 @@ def make_app(
         _replay_key: str | None = None
         _replay_orig: list[Any] | None = None
         _thinking = False  # preserved-thinking lineage (ADR 0028): freeze + thinkguard
+        _url_model = False  # `model` copied in from a Bedrock/Vertex URL, dropped again
+
         try:
             body: dict[str, Any] = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
@@ -341,8 +343,11 @@ def make_app(
                     _compress_fn = compress_chat_completions
                 else:
                     from . import thinkguard as _tg
+                    from .serve_core import with_url_model
 
                     _compress_fn = compress_messages
+                    # Bedrock/Vertex name the model in the URL; the thinking guard keys on it.
+                    body, _url_model = with_url_model(body, request.path)
                     _thinking = _tg.lineage(body)
                 _client_body = body
                 try:
@@ -428,6 +433,10 @@ def make_app(
                     scope=_prep.credential_scope(dict(fwd_headers)),
                     extras=extras,
                 )
+            if _url_model:
+                from .serve_core import without_model
+
+                body = without_model(body)
             body_bytes = json.dumps(body).encode()
 
         url = _upstream + request.path

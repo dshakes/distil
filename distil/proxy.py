@@ -1396,6 +1396,7 @@ def build_handler(
                         extras=extras,
                         usage_sink=_usage_x,
                         on_signal=_on_signal,
+                        model=_span_model if _span_model != "unknown" else None,
                         on_usage_nudge=_nudge_usage_x,
                     )
                     # After the splice, not before: the response headers were flushed the
