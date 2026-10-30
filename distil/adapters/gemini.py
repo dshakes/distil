@@ -73,7 +73,7 @@ from ..compress.recency import RECENCY_KEEP_TURNS as _RECENCY_KEEP_TURNS
 from ..compress.recency import exempt_indices as _exempt_indices
 from ..compress import provenance as _provenance
 from ..compress import vision as _vision
-from ..httpguard import strip_query
+from ..httpguard import VERTEX_GOOGLE_RE, strip_query
 from ..tokenizer import DEFAULT as _tokenizer
 from .openai import _guard_quotes_with
 from .anthropic import (
@@ -106,7 +106,8 @@ _GENERATE_RE = re.compile(r"\A/v1(?:beta)?/models/[^/:]+:(?:stream)?[Gg]enerateC
 
 def is_gemini_path(path: str) -> bool:
     """True if *path* is a Gemini ``(stream)generateContent`` endpoint."""
-    return bool(_GENERATE_RE.match(strip_query(path)))
+    p = strip_query(path)
+    return bool(_GENERATE_RE.match(p) or VERTEX_GOOGLE_RE.match(p))
 
 
 # ---------------------------------------------------------------------------

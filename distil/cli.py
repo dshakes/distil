@@ -2878,6 +2878,10 @@ def cmd_default(args: argparse.Namespace) -> int:
                 st3, msg3 = ts
                 print(("✗ " if st3 == "error" else "✓ ") + msg3)
         print(f"\nAll base-URL clients now route through distil. Next: source {rc}")
+        print(
+            "  ⚠ Codex is NOT covered: it ignores OPENAI_BASE_URL and opens a WebSocket. "
+            "Use the default alias mode for it (`distil onboard codex`), API-key auth only."
+        )
         # The single-point-of-failure warning is real and stays, but it is one
         # line: a persistent pin whose service is down takes every session out,
         # and `distil wrap` now refuses to start into that state rather than

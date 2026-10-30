@@ -32,6 +32,7 @@ import urllib.request
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import unquote
 
 from . import coldpoint as _coldpoint
 from ._log import log
@@ -191,13 +192,21 @@ class Outbound:
 
 
 def _model_from_path(path: str) -> str | None:
-    """Extract the model id from a Gemini-style URL (``.../models/<id>:action``)."""
+    """Extract the model id from the URL: Gemini / Vertex (``.../models/<id>:action``) or
+    Bedrock (``/model/<id>/invoke``, percent-encoded — ``:`` arrives as ``%3A``)."""
+    path = strip_query(path)
+    if path.startswith("/model/"):
+        return unquote(path[len("/model/") :].split("/", 1)[0]) or None
     marker = "/models/"
     idx = path.find(marker)
     if idx < 0:
         return None
     tail = path[idx + len(marker) :]
     return tail.split(":", 1)[0].split("/", 1)[0] or None
+
+
+def _is_hosted_anthropic_path(path: str) -> bool:
+    return path.startswith("/model/") or "/publishers/anthropic/" in path
 
 
 def _cold_plan(
@@ -343,7 +352,14 @@ def compress_or_forward(
                 body = shape_request(body, level=shape_output, allow=True, shape="responses")
                 extras["x-distil-output-shaping"] = shape_output
 
-        elif "messages" in body and isinstance(body["messages"], list):
+        elif (
+            "messages" in body
+            and isinstance(body["messages"], list)
+            # Bedrock/Vertex paths are shared with non-Anthropic bodies (Nova's
+            # ``messages`` holds ``{"text"}`` blocks): only the Anthropic body, which
+            # always names its ``anthropic_version``, is ours to rewrite.
+            and (not _is_hosted_anthropic_path(_path) or "anthropic_version" in body)
+        ):
             original: list[dict[str, Any]] = body["messages"]
             replay_key, replay_orig = "messages", original
             # Counted BEFORE anything stateful so a quota rejection (admit) leaves the
@@ -514,11 +530,16 @@ def compress_or_forward(
             # Only when the counts are real: a request whose accounting failed goes
             # unbooked rather than entering the ledger with a fabricated zero.
             if before_tok is not None and after_tok is not None:
-                pending = (before_tok, after_tok, body.get("model"))
+                # Bedrock/Vertex carry the model in the URL, not the body.
+                pending = (before_tok, after_tok, body.get("model") or _model_from_path(path))
             if shape_output != "off":
                 from .output import shape_request
 
-                shape = "anthropic" if _path == "/v1/messages" else "openai"
+                shape = (
+                    "anthropic"
+                    if _path == "/v1/messages" or "anthropic_version" in body
+                    else "openai"
+                )
                 body = shape_request(body, level=shape_output, allow=True, shape=shape)
                 extras["x-distil-output-shaping"] = shape_output
 

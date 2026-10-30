@@ -40,6 +40,8 @@ from .adapters.gemini import is_gemini_path
 from .httpguard import (
     framing_rejection,
     is_compressible_path,
+    is_eventstream_path,
+    sigv4_refusal,
     is_messages_path,
     parse_content_length,
     safe_forward_path,
@@ -975,6 +977,10 @@ def build_handler(
                 _mark_session_traffic()
             _warn_if_version_skew(_version_state)
             p = strip_query(self.path)
+            _refusal = sigv4_refusal(p, self.headers.get("Authorization"))
+            if _refusal:
+                self._reject(400, _refusal)
+                return
             if is_compressible_path(p) or is_gemini_path(p):
                 # Content-free integration-surface counter (census schema 3).
                 try:
@@ -999,6 +1005,23 @@ def build_handler(
         def do_GET(self) -> None:  # noqa: N802
             if strip_query(self.path) == "/distil/health":
                 self._respond_health()
+                return
+            if "websocket" in (self.headers.get("Upgrade") or "").lower():
+                # Codex opens the Responses API as a WebSocket first. This proxy is
+                # plain HTTP: relaying the upgrade as a GET would silently bypass
+                # compression, so refuse loudly and let the client use HTTP POST.
+                log.warning("WebSocket upgrade refused on %s — client should use HTTP", self.path)
+                body = (
+                    b'{"error":{"type":"websocket_unsupported","message":"distil proxy '
+                    b"speaks HTTP only; disable WebSocket (codex: supports_websockets=false, "
+                    b'or use distil wrap -- codex)"}}'
+                )
+                self.send_response(426)
+                self.send_header("Upgrade", "http/1.1")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
                 return
             self._passthrough()
 
@@ -1163,7 +1186,11 @@ def build_handler(
             # injected, so stubs already in the history remain recoverable and the
             # cached tools prefix does not change shape at the trip.
             _held, _req_mode = _request_mode()
-            _verb = verbatim or _held
+            # Bedrock's streamed answer is binary eventstream: no digest handles (so no
+            # distil_expand tool the splice/loop could not resolve), Tier-0 only.
+            _eventstream = is_eventstream_path(self.path)
+            _expand_here = expand and not _eventstream
+            _verb = verbatim or _held or _eventstream
             _shape_ok = _lossy_ok and not _held
             if _held and savings is not None:
                 savings.mode = _req_mode
@@ -1229,7 +1256,7 @@ def build_handler(
                     self.path,
                     count=_count_messages,
                     verbatim=_verb,
-                    expand=expand,
+                    expand=_expand_here,
                     mode=_req_mode,
                     keep=_learn_keep,
                     session_delta=session_delta,
@@ -1285,7 +1312,7 @@ def build_handler(
             # agent keeps streaming AND the digest stays recoverable.
             want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
             t_req = time.monotonic()  # upstream + relay latency (compression excluded)
-            _intercept = _expand_should_intercept(expand, store, body)
+            _intercept = _expand_should_intercept(_expand_here, store, body)
             # The splice only speaks Anthropic Messages SSE. It used to run for ANY
             # provider whose request carried a handle, and on an OpenAI or Gemini
             # stream every event fell through to the "unknown keepalive" arm: each
@@ -1505,11 +1532,15 @@ def build_handler(
             # final body (as this did until 1.54) recorded the last call and dropped the
             # first one and every intermediate re-query, so a request that expanded
             # looked cheaper than it was — biasing every savings figure toward distil.
-            from .streamrelay import add_usage, scan_usage
+            from .streamrelay import add_usage, eventstream_payloads, scan_usage
 
             _usage_b: dict[str, int] = {}
             try:
-                _usage_b = scan_usage(rbody[:16384] + b"\n" + rbody[-16384:])
+                _usage_b = scan_usage(
+                    eventstream_payloads(rbody)
+                    if _eventstream
+                    else rbody[:16384] + b"\n" + rbody[-16384:]
+                )
             except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
                 pass
 
@@ -1517,7 +1548,7 @@ def build_handler(
             # the local store and re-query, invisibly, before returning to the agent.
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
             # Anthropic/OpenAI loop (messages/tool_use shape) based on body type.
-            if _expand_should_intercept(expand, store, body):
+            if _expand_should_intercept(_expand_here, store, body):
                 try:
                     resp_json = json.loads(rbody)
                 except (ValueError, TypeError):
@@ -2794,7 +2825,12 @@ def wrap_run(
         # finds the child: the handler no-ops on the None placeholder, then the
         # single-statement store binds the real proc as tightly as possible.
         proc_holder.append(None)
-        proc_holder[0] = proc = subprocess.Popen([*command, *config_argv], env=child_env)
+        proc_holder[0] = proc = subprocess.Popen(
+            [*command[:1], *config_argv, *command[1:]]
+            if isinstance(config_argv, config_wrap.LeadingArgs)
+            else [*command, *config_argv],
+            env=child_env,
+        )
         code = proc.wait()
     except FileNotFoundError:
         print(f"distil wrap: command not found: {command[0]}", file=sys.stderr)
