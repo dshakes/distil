@@ -826,6 +826,17 @@ def build_handler(
     # starts no watcher: a health check must not migrate or quarantine state.
     _drift_guard = DriftGuard.start(watch=not diagnostic, write=not diagnostic)
 
+    def _thinking_lineage(raw: bytes) -> bool:
+        """A preserved-thinking lineage is never shaped (ADR 0028), so its shadow rows are
+        shape=off evidence whatever the configured level."""
+        try:
+            from . import thinkguard
+
+            b = json.loads(raw)
+            return isinstance(b, dict) and thinkguard.lineage(b)
+        except Exception:  # noqa: BLE001 — a label must never break the shadow
+            return False
+
     def _request_mode() -> tuple[bool, str]:
         """(held, x-distil-mode) for one request. Fail-open: a broken guard means the
         request is served exactly as configured, never refused."""
@@ -1943,7 +1954,9 @@ def build_handler(
                         # A drift-guard hold serves no shaping, so its rows are shape=off.
                         "levers": {
                             "compression": _request_mode()[1],
-                            "shape": "off" if _request_mode()[0] else shape_output,
+                            "shape": "off"
+                            if _request_mode()[0] or _thinking_lineage(compressed_raw)
+                            else shape_output,
                         },
                         # lossless-only and digest measure different things; the reports
                         # break them out rather than averaging two experiments.

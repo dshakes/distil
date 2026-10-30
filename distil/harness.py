@@ -652,6 +652,155 @@ def _check_prefix_replay_semantics(messages: list[dict[str, Any]]) -> tuple[bool
     return True, ""
 
 
+def _check_thinking_prefix(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    """A cold-point eviction never leaves a thinking block after the position it edits —
+    on preserved-thinking models (Opus/Sonnet/Haiku 5.5, Fable/Mythos 5.1) each block's
+    signature binds the prefix before it, so one surviving block after an edit is a 400.
+
+    Every assistant message gets a signed thinking block, the case is evicted the way a
+    cold turn would (candidates + :func:`thinking_after_edit`, sticky), and the payload
+    is diffed against the same request without the eviction: nothing thinks after the
+    first message that differs. A deferred eviction (None) must stay deferred.
+    """
+    from distil.adapters import anthropic as _an
+
+    model = "claude-opus-5-5"
+    msgs: list[dict[str, Any]] = []
+    for i, m in enumerate(messages):
+        if isinstance(m, dict) and m.get("role") == "assistant":
+            c = m.get("content")
+            body = c if isinstance(c, list) else [{"type": "text", "text": str(c or "")}]
+            sig = {"type": "thinking", "thinking": "", "signature": f"harness-sig-{i}"}
+            m = {**m, "content": [sig, *body]}
+        msgs.append(m)
+    cands = _an.cold_candidates(msgs, model=model)
+    if not cands:
+        return True, ""
+    tail = _an.thinking_after_edit(msgs, cands, model)
+    if tail is None:
+        return True, ""  # deferred to a turn boundary: nothing is edited on this request
+    base, _ = _an.compress_messages(msgs, persist=False)
+    out, _ = _an.compress_messages(msgs, evict=cands | tail, persist=False, sticky_evict=True)
+    if len(out) != len(base):
+        return False, "eviction changed the message count"
+    diff = [i for i, (a, b) in enumerate(zip(base, out)) if json.dumps(a) != json.dumps(b)]
+    if not diff:
+        return True, ""
+    p = diff[0]
+    late = [
+        i
+        for i, m in enumerate(out[p + 1 :], p + 1)
+        if isinstance(m, dict)
+        and isinstance(m.get("content"), list)
+        and any(isinstance(b, dict) and b.get("type") == "thinking" for b in m["content"])
+    ]
+    if late:
+        return False, f"edit at message {p} but thinking survives at {late[:5]}"
+    return True, ""
+
+
+def _bound_prefix(body: dict[str, Any], n: int) -> str:
+    """What a preserved-thinking signature binds, modelled independently of thinkguard:
+    system, tools, messages[:n] — thinking blocks out, cache_control out, key order and the
+    bare-string/text-block spelling normalised."""
+
+    def strip(v: Any) -> Any:
+        if isinstance(v, dict):
+            return {k: strip(x) for k, x in v.items() if k != "cache_control"}
+        return [strip(x) for x in v] if isinstance(v, list) else v
+
+    def blocks(c: Any) -> list[Any]:
+        out = []
+        for b in c if isinstance(c, list) else [c]:
+            if isinstance(b, dict) and b.get("type") in ("thinking", "redacted_thinking"):
+                continue
+            b = {"type": "text", "text": b} if isinstance(b, str) else strip(b)
+            out.append(b)
+        return out
+
+    msgs = [[m.get("role"), blocks(m.get("content"))] for m in body["messages"][:n]]
+    return json.dumps(
+        [blocks(body.get("system") or []), strip(body.get("tools")), msgs], sort_keys=True
+    )
+
+
+def _check_thinking_sequence(messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    """Two turns through the real proxy path on a preserved-thinking model. Turn 1 is
+    forwarded and a signature is "produced" over what went out; turn 2 re-sends that history
+    with the signed block appended, under each way distil used to rewrite an earlier byte —
+    a drift-guard hold (verbatim), a compressor that raises (fail-open), a cold prefix-replay
+    state (restart / byte cap). The block must either go out over the exact prefix it was
+    produced on, or not go out at all."""
+    from distil import serve_core
+
+    old_home = os.environ.get("DISTIL_HOME")
+    os.environ["DISTIL_HOME"] = tempfile.mkdtemp()
+    real = serve_core.compress_messages
+    try:
+        for how in ("plain", "held", "fail-open", "restart"):
+            scope = f"harness-{how}-{os.getpid()}-{id(messages)}\0"
+            body1 = {
+                "model": "claude-opus-5-5",
+                "thinking": {"type": "adaptive"},
+                "messages": messages,
+            }
+
+            def fwd(body: dict[str, Any], rscope: str, **kw: Any) -> dict[str, Any]:
+                out = serve_core.compress_or_forward(
+                    body,
+                    "/v1/messages",
+                    count=lambda m: 1,
+                    expand=True,
+                    mode="digest",
+                    scope=scope,
+                    replay_scope=rscope,
+                    **kw,
+                )
+                assert out is not None
+                return out.body
+
+            f1 = fwd(body1, scope, verbatim=False)
+            n = len(messages)
+            produced = _bound_prefix(f1, n)
+            signed = {"type": "thinking", "thinking": "", "signature": f"harness-{how}"}
+            body2 = {
+                **body1,
+                "messages": [
+                    *messages,
+                    {"role": "assistant", "content": [signed, {"type": "text", "text": "ok"}]},
+                    {"role": "user", "content": [{"type": "text", "text": "next"}]},
+                ],
+            }
+            if how == "fail-open":
+                serve_core.compress_messages = _boom  # type: ignore[assignment]
+            try:
+                f2 = fwd(
+                    body2,
+                    scope + "cold" if how == "restart" else scope,
+                    verbatim=how == "held",
+                    held=how == "held",
+                )
+            finally:
+                serve_core.compress_messages = real  # type: ignore[assignment]
+            kept = any(
+                isinstance(b, dict) and b.get("signature") == signed["signature"]
+                for b in f2["messages"][n].get("content") or []
+            )
+            if kept and _bound_prefix(f2, n) != produced:
+                return False, f"{how}: thinking forwarded over a prefix distil changed"
+    finally:
+        serve_core.compress_messages = real  # type: ignore[assignment]
+        if old_home is None:
+            os.environ.pop("DISTIL_HOME", None)
+        else:
+            os.environ["DISTIL_HOME"] = old_home
+    return True, ""
+
+
+def _boom(*_a: Any, **_k: Any) -> Any:
+    raise RuntimeError("harness: compressor failure")
+
+
 _INVARIANTS = [
     ("reversibility", _check_reversibility),
     ("reject-if-bigger", _check_reject_if_bigger),
@@ -659,7 +808,12 @@ _INVARIANTS = [
     ("quote-survival", _check_quote_survival),
     ("fail-open", _check_fail_open),
     ("prefix-replay-semantics", _check_prefix_replay_semantics),
+    ("thinking-prefix", lambda m: _both(_check_thinking_prefix(m), _check_thinking_sequence(m))),
 ]
+
+
+def _both(a: tuple[bool, str], b: tuple[bool, str]) -> tuple[bool, str]:
+    return a if not a[0] else b
 
 
 def run(*, verbose: bool = True, adversarial: bool = False) -> dict[str, Any]:

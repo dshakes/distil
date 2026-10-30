@@ -258,7 +258,20 @@ def run_expand_loop(
             {"role": "user", "content": results},
         ]
         resp = post({**body, "messages": messages})
+        _taint(body, resp.get("content"))
     return resp
+
+
+def _taint(body: dict[str, Any], blocks: Any) -> None:
+    """Thinking the model produced after a hidden expand round is signed over a prefix
+    the client will never send back. On a preserved-thinking model (ADR 0028) it is dropped
+    from every later request (the API allows removing the newest), never 400'd on."""
+    from .adapters.anthropic import preserved_thinking
+
+    if isinstance(blocks, list) and preserved_thinking(str(body.get("model") or "")):
+        from . import thinkguard
+
+        thinkguard.drop(blocks)
 
 
 def _chat_message(resp: dict[str, Any]) -> dict[str, Any]:

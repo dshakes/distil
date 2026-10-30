@@ -1117,7 +1117,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
     invariants = (
         "reversibility · reject-if-bigger · recency · quote-survival · fail-open · "
-        "prefix-replay-semantics · content-free"
+        "prefix-replay-semantics · thinking-prefix · content-free"
     )
     if args.adversarial:
         invariants += " · load-bearing"

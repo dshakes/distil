@@ -284,6 +284,7 @@ def make_app(
         # conversation, and the items as the CLIENT sent them this turn.
         _replay_key: str | None = None
         _replay_orig: list[Any] | None = None
+        _thinking = False  # preserved-thinking lineage (ADR 0028): freeze + thinkguard
         try:
             body: dict[str, Any] = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
@@ -338,7 +339,11 @@ def make_app(
 
                     _compress_fn = compress_chat_completions
                 else:
+                    from . import thinkguard as _tg
+
                     _compress_fn = compress_messages
+                    _thinking = _tg.lineage(body)
+                _client_body = body
                 try:
                     compressed, _store = _compress_fn(original, verbatim=verbatim)
                 except Exception:  # noqa: BLE001 — compression must never break a request
@@ -350,7 +355,12 @@ def make_app(
                     "x-distil-compressed": "1",
                     "x-distil-tokens-saved": str(saved),
                 }
-                if shape_output != "off" and _lossy_ok and not _drift_guard.engaged:
+                if (
+                    shape_output != "off"
+                    and _lossy_ok
+                    and not _drift_guard.engaged
+                    and not _thinking  # a system edit invalidates every thinking block
+                ):
                     from .output import shape_request
 
                     _shape = "anthropic" if request.path == "/v1/messages" else "openai"
@@ -404,6 +414,17 @@ def make_app(
                     scope=_prep.credential_scope(
                         {**fwd_headers, **_prep.query_credentials(request.path_qs)}
                     ),
+                    extras=extras,
+                    freeze=_thinking,
+                )
+            if _thinking:
+                from . import prefixreplay as _prep
+                from . import thinkguard as _tg
+
+                body = _tg.guard(
+                    _client_body,
+                    body,
+                    scope=_prep.credential_scope(dict(fwd_headers)),
                     extras=extras,
                 )
             body_bytes = json.dumps(body).encode()
