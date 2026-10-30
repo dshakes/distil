@@ -201,3 +201,24 @@ def test_hook_fires_for_responses_and_gemini_with_the_forwarded_list() -> None:
         )
         assert len(seen) == 1, path
         assert detect(seen[0][1]).calls == 1, path
+
+
+def test_text_turn_after_a_round_does_not_recount_it():
+    def call(i):
+        return {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": i, "name": "Read", "input": {"file_path": "/a"}}
+            ],
+        }
+
+    def res(i):
+        return {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": i, "content": "x"}],
+        }
+
+    rnd = [{"role": "user", "content": "go"}, call("1"), res("1"), call("2"), res("2")]
+    assert detect(rnd).repeats == 1
+    chat = [{"role": "assistant", "content": "done"}, {"role": "user", "content": "thanks"}]
+    assert detect(rnd + chat).repeats == 0

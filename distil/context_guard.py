@@ -364,15 +364,18 @@ class StreamGuard:
         self._buf.extend(chunk)
         out = bytearray()
         while not self._done:
-            idx = self._buf.find(b"\n\n")
-            if idx == -1:
+            end = _event_end(self._buf)
+            if end == -1:
                 # Give up after a large unframed stretch to avoid unbounded buffering.
                 if len(self._buf) > 256 * 1024:
                     out += self._finish()
                 break
-            event = bytes(self._buf[: idx + 2])
-            del self._buf[: idx + 2]
+            event = bytes(self._buf[:end])
+            del self._buf[:end]
             out += self._process(event)
+        if self._done:
+            # Went inert mid-chunk: the rest of this chunk follows in order, now.
+            out += self._finish()
         return bytes(out)
 
     def flush(self) -> bytes:
@@ -465,6 +468,16 @@ class StreamGuard:
             lines[i] = b"data: " + json.dumps(payload, separators=(",", ":")).encode() + eol
             return b"\n".join(lines)
         return event
+
+
+def _event_end(buf: bytearray) -> int:
+    """End offset (exclusive) of the first complete SSE event in *buf*, or -1.
+
+    SSE allows LF or CRLF line endings, so an event ends at the earliest blank
+    line in either form.
+    """
+    ends = [i + len(sep) for sep in (b"\n\n", b"\r\n\r\n") if (i := buf.find(sep)) != -1]
+    return min(ends) if ends else -1
 
 
 def _event_type(event: bytes) -> bytes | None:

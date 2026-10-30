@@ -407,6 +407,24 @@ def test_stream_guard_chunks_across_boundary():
     assert data["message"]["usage"]["input_tokens"] == 190_000
 
 
+@pytest.mark.parametrize("saved", [0, 140_000])
+def test_stream_guard_never_holds_back_events_after_going_inert(saved):
+    """Events sharing a chunk with the one that ends the guard's work are emitted
+    in that same feed(), in order — never parked until flush()."""
+    guard = StreamGuard(saved, "claude-opus-4-8")
+    start, content = _make_start_event(50_000), _make_content_event("a")
+    delta, tail = _make_delta_event(inp=50_000), _make_content_event("b")
+    out = guard.feed(start + content + delta + tail) + guard.feed(b"event: ping\n\n")
+    assert out.endswith(tail + b"event: ping\n\n")
+    assert guard.flush() == b""
+
+
+def test_stream_guard_frames_crlf_events():
+    guard = StreamGuard(0, "claude-opus-4-8")
+    chunk = (_make_start_event(50_000) + _make_content_event()).replace(b"\n", b"\r\n")
+    assert guard.feed(chunk) == chunk
+
+
 # ---------------------------------------------------------------------------
 # Proxy integration — non-streaming
 # ---------------------------------------------------------------------------

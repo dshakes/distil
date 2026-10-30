@@ -369,7 +369,12 @@ def make_app(
                 ):
                     from .output import shape_request
 
-                    _shape = "anthropic" if request.path == "/v1/messages" else "openai"
+                    # Bedrock/Vertex Messages bodies name anthropic_version, as in serve_core.
+                    _shape = (
+                        "anthropic"
+                        if request.path == "/v1/messages" or "anthropic_version" in body
+                        else "openai"
+                    )
                     body = shape_request(body, level=shape_output, allow=True, shape=_shape)
                     extras["x-distil-output-shaping"] = shape_output
                 if savings is not None:

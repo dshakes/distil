@@ -148,6 +148,15 @@ def _digest(name: str, args: Any) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
+def _closed_by_text(items: list[Any]) -> bool:
+    """True when an item without tool calls or results comes after the last tool result."""
+    last = max(
+        (n for n, it in enumerate(items) if any(e[0] == "result" for e in _events([it]))),
+        default=-1,
+    )
+    return any(isinstance(it, dict) and not _events([it]) for it in items[last + 1 :])
+
+
 def detect(items: list[Any]) -> LoopReport:
     """Count the newest round's repeated calls in *items* (messages, ``input`` or ``contents``).
 
@@ -166,6 +175,8 @@ def detect(items: list[Any]) -> LoopReport:
         start -= 1
     trailing = {i for k, i, _n, _p in ev[end:] if k == "result"}
     new = {i for k, i, _n, _p in ev[start:end] if k == "call" and i in trailing}
+    if new and _closed_by_text(items):
+        new = set()  # a text exchange followed the round: an earlier request already counted it
     rep = LoopReport()
     seen_key: dict[tuple[str, str], str] = {}
     seen_full: set[str] = set()

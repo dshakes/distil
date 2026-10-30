@@ -205,6 +205,42 @@ def test_aproxy_shape_output_light_header() -> None:
     _run(_body())
 
 
+def test_aproxy_shapes_hosted_anthropic_messages_as_anthropic() -> None:
+    """A Bedrock/Vertex Messages body (marked by anthropic_version) must get the
+    Anthropic system directive, not an OpenAI {"role": "system"} message it rejects."""
+
+    async def _echo(req: web.Request) -> web.Response:
+        return web.Response(body=await req.read(), content_type="application/json")
+
+    async def _body() -> None:
+        up_app = web.Application()
+        up_app.router.add_post("/{p:.*}", _echo)
+        async with TestServer(up_app) as up:
+            app = make_app(str(up.make_url("/")).rstrip("/"), shape_output="light")
+            async with TestClient(TestServer(app)) as client:
+                payload = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [{"type": "tool_result", "content": _LONG_TOOL_RESULT}],
+                        }
+                    ],
+                }
+                resp = await client.post(
+                    "/model/anthropic.claude-sonnet-4-5-20250929-v1%3A0/invoke",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                assert resp.status == 200
+                assert resp.headers.get("x-distil-output-shaping") == "light"
+                sent = json.loads(await resp.read())
+                assert all(m.get("role") != "system" for m in sent["messages"])
+                assert sent.get("system")
+
+    _run(_body())
+
+
 @pytest.mark.parametrize("sub", ["0", "1"])
 def test_aproxy_shapes_gemini_like_the_other_shapes(monkeypatch, sub) -> None:
     """Gemini was the one shape the async proxy never shaped; same gate as the rest,

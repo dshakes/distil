@@ -48,6 +48,16 @@ def _wrap_one(tool: Any, verbatim: bool) -> Any:
 
     # object.__setattr__: pydantic models reject setting a non-field attribute.
     object.__setattr__(clone, "_run", _run)
+
+    ainner = getattr(clone, "_arun", None)
+    if callable(ainner):  # async execution calls _arun and would skip _run entirely
+
+        @functools.wraps(ainner)
+        async def _arun(*args: Any, **kwargs: Any) -> Any:
+            out = await ainner(*args, **kwargs)
+            return compress_tool_output(out, verbatim=verbatim) if isinstance(out, str) else out
+
+        object.__setattr__(clone, "_arun", _arun)
     return clone
 
 

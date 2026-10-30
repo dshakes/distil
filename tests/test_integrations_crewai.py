@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 
 import pytest
@@ -60,3 +62,13 @@ def test_non_tool_is_rejected():
 def test_compress_tool_output_never_grows():
     assert len(compress_tool_output(BIG)) <= len(BIG)
     assert compress_tool_output("") == ""
+
+
+def test_async_arun_is_compressed_too():
+    class AsyncTool(FakeTool):
+        async def _arun(self, *args, **kwargs):
+            return self.result
+
+    (wrapped,) = wrap_tools([AsyncTool(BIG)])
+    out = asyncio.run(wrapped._arun())
+    assert len(out) < len(BIG)
