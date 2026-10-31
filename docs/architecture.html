@@ -272,7 +272,7 @@
       <div class="tier">
         <div class="k">Tier 1 — Reversible</div>
         <h4>Decision-aware digest</h4>
-        <p>Large tool results (≥ 6 lines) are replaced with a compact digest. The original is kept in a <code>RestoreStore</code> keyed by an 8-hex SHA-256 content handle.</p>
+        <p>Large tool results (≥ 2,000 tokens and ≥ 6 lines) are replaced with a compact digest; anything smaller reaches the agent whole, because a stub of output it just asked for sends it back to read it again. The original is kept in a <code>RestoreStore</code> keyed by an 8-hex SHA-256 content handle.</p>
         <ul style="margin-top:8px;font-size:13px;color:var(--mut)">
           <li>The handle is embedded inline — re-expansion is always possible.</li>
           <li>A dropped run no longer than its marker is shown inline instead.</li>

@@ -803,3 +803,32 @@ def test_baseline_and_census_agree_on_thinking_tokens():
         compress_messages(msgs, verbatim=False)
         censused = (take_census() or {}).get("thinking_billed", 0)
         assert baseline == censused, f"{block['type']}: {baseline} != {censused}"
+
+
+@pytest.mark.real_digest_floor
+def test_output_under_the_digest_floor_reaches_the_agent_whole():
+    # A ~4k-char file read: the shape that, digested on first sight, sent the agent back
+    # to read it again (SWE-bench Lite-300, +11.6% steps). Under the floor it stays whole.
+    from distil.adapters.anthropic import _DIGEST_MIN_TOKENS
+    from distil.tokenizer import DEFAULT as tok
+
+    text = "\n".join(f"    line_{i} = compute(value_{i}, flag={i % 3})" for i in range(90))
+    assert tok.count(text) < _DIGEST_MIN_TOKENS
+    out, store = compress_messages([_make_tool_result_message(text), *_PAD])
+    assert "handle=" not in out[0]["content"][0]["content"]
+    assert not store.handles
+
+
+@pytest.mark.real_digest_floor
+def test_output_over_the_digest_floor_is_still_digested():
+    from distil.adapters.anthropic import _DIGEST_MIN_TOKENS
+    from distil.tokenizer import DEFAULT as tok
+
+    text = "\n".join(
+        f"2026-10-31 12:00:{i % 60:02d} INFO worker-{i % 7} processed batch {i} ok"
+        for i in range(1500)
+    )
+    assert tok.count(text) >= _DIGEST_MIN_TOKENS
+    out, store = compress_messages([_make_tool_result_message(text), *_PAD])
+    assert "handle=" in out[0]["content"][0]["content"]
+    assert store.expand(next(iter(store.handles))) == text
