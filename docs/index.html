@@ -509,7 +509,7 @@
 <section id="proof-first"><div class="wrap">
   <div class="seyebrow p">The proof, in depth</div>
   <p class="sub"><b>Distil is the compressor that tells you when it is hurting you — and measures any other compressor, or your provider's own compaction, the same way.</b></p>
-  <p class="sub" style="font-size:17px">On <b>SWE-bench Lite</b> the shipped path is <b>cost-neutral and within about 2 points on task success</b> — not statistically distinguishable at n=300.
+  <p class="sub" style="font-size:17px">On <b>SWE-bench Lite</b> the shipped path is <b>within about 2 points on task success with no cost difference shown</b> — not statistically distinguishable at n=300. The latest run (2026-10-30, with Headroom 0.42 in the same harness) has distil 208/299, Headroom 211/299 and plain 209/299; neither compressor saves money on these short tasks.
     <small>Two runs after the shell-search fix: 204/299 vs 210/299 plain (&minus;2.0 pts, 95% CI &minus;5.5..+1.5, cost $7.18 vs $7.18) and
     213/298 vs 218/298 (&minus;1.7 pts, 95% CI &minus;5.1..+1.7, cost $8.44 vs $8.52). Non-inferiority at the pre-registered 5-point
     margin is not shown, and a 7-task long-session pilot is inconclusive. <a href="ab.html#model-migration">Reports and method &rarr;</a> &middot; <a href="scoreboard.html">every compressor, same harness &rarr;</a></small></p>
