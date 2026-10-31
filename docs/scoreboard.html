@@ -97,6 +97,38 @@
     <p class="lead">Every context compressor claims a saving. This page scores them on what a user pays for: dollars per <b>solved</b> task, with every failed attempt's spend counted, and whether tasks still get solved. Each compressor is run by its own real, pinned package through the same harness and the same official grader. distil is one of the rows, not the referee's favourite: the same rules apply to it.</p>
     <p>How it is measured, and why these estimators, is <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0024-distil-as-referee.md">ADR 0024</a>. Paired against plain on the same tasks; the interval on the difference is the harness's Wald interval with an exact McNemar test, at a pre-registered 5-point non-inferiority margin. A row that says <i>pending run</i> has no committed data, and nothing here estimates it. The runs that will fill it, with their costs, are in <a href="https://github.com/dshakes/distil/blob/main/docs/research/referee-runs.md">the run plan</a>. To referee a compressor on your <em>own</em> traffic instead, see <code>distil audit</code> in the <a href="cli.html">CLI reference</a>.</p>
 
+    <h2 id="swebench-lite-300-headroom-042">SWE-bench Lite (300), Sonnet 5.5, effort medium (official grader)</h2>
+    <p><code>claude-sonnet-5-5</code> · effort medium · n = 299 tasks graded in every arm · run 2026-10-30. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-lite-300-headroom-042"><code>benchmarks/results/swebench-lite-300-headroom-042</code></a>. First Headroom run on this harness. distil and Headroom are both non-inferior to plain and neither shows a cost difference (both $-per-solved intervals cross 1, both point estimates above it). Median task is 4 steps: the compressed arms took more steps and sent more input tokens than plain.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Lite (300), Sonnet 5.5, effort medium (official grader) scoreboard">
+    <table>
+      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <tbody>
+        <tr><td>plain (no compression)</td><td>$0.0356</td><td>209/299 · 69.9% (64.5%–74.8%)</td><td>baseline</td><td>$7.43</td><td>5,659,396 / 336,858</td><td>1284</td><td>—</td></tr>
+        <tr><td>distil</td><td>$0.0382</td><td>208/299 · 69.6% (64.1%–74.5%)</td><td>-0.3 [-3.5, +2.8] · NON-INFERIOR</td><td>$7.94</td><td>7,090,234 / 358,247</td><td>1433</td><td>distil 1.58.0</td></tr>
+        <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Headroom</td><td>$0.0365</td><td>211/299 · 70.6% (65.2%–75.4%)</td><td>+0.7 [-2.4, +3.7] · NON-INFERIOR</td><td>$7.69</td><td>6,493,940 / 342,594</td><td>1347</td><td>headroom-ai 0.42.0</td></tr>
+        <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Anthropic context editing</td><td colspan="7"><i>pending run</i></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2 id="swebench-lite-300-distil-recall">SWE-bench Lite (300), Sonnet 5.5, effort medium, distil with visible recall (official grader)</h2>
+    <p><code>claude-sonnet-5-5</code> · effort medium · n = 299 tasks graded in every arm · run 2026-10-30. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-lite-300-distil-recall"><code>benchmarks/results/swebench-lite-300-distil-recall</code></a>. Plain rows are reused from swebench-lite-300-headroom-042 (same model, effort and tasks). The visible-recall change cut distil&#x27;s cost overhead from +7.4% to +2.8%; the interval still crosses 1, so no cost difference is shown.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Lite (300), Sonnet 5.5, effort medium, distil with visible recall (official grader) scoreboard">
+    <table>
+      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <tbody>
+        <tr><td>plain (no compression)</td><td>$0.0356</td><td>209/299 · 69.9% (64.5%–74.8%)</td><td>baseline</td><td>$7.43</td><td>5,659,396 / 336,858</td><td>1284</td><td>—</td></tr>
+        <tr><td>distil</td><td>$0.0366</td><td>207/299 · 69.2% (63.8%–74.2%)</td><td>-0.7 [-4.0, +2.7] · NON-INFERIOR</td><td>$7.57</td><td>6,521,174 / 337,193</td><td>1386</td><td>distil 1.58.0</td></tr>
+        <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Anthropic context editing</td><td colspan="7"><i>pending run</i></td></tr>
+      </tbody>
+    </table>
+    </div>
+
     <h2 id="swebench-verified-hard-max">SWE-bench Verified, hard tasks, effort max (official grader)</h2>
     <p><code>claude-sonnet-5-5</code> · effort max · n = 7 tasks graded in every arm · run 2026-10-06. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-verified-hard-max"><code>benchmarks/results/swebench-verified-hard-max</code></a>. Long-horizon pilot, not a verdict: 7 tasks (the hard &#x27;1-4 hours&#x27;/&#x27;&gt;4 hours&#x27; Verified buckets, as many as the $100 cap bought) at effort max, median 63-69 steps per task. No cost difference is shown for distil or rtk (both $-per-solved intervals cross 1). distil&#x27;s lower $ per solved comes from one attempt that crashed after 4 steps on max_tokens; on the other 6 tasks distil cost 9.7% more than plain. selective and provider-cm were dropped to fit the cap (pre-registered rule).</p>
     <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Verified, hard tasks, effort max (official grader) scoreboard">

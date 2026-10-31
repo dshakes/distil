@@ -2,6 +2,29 @@
   "_note": "Which committed runs scripts/build_scoreboard.py puts on docs/scoreboard.html, newest first. Every number on the page is recomputed from each dir's results.jsonl + grades.jsonl (swebench_outcome) or analysis.json (cost_truth). `date` and `versions` are run metadata copied from the run's report.md notes and git history; arm_meta in the rows wins when present. Add a dir here after a run lands; an arm with no rows shows 'pending run'.",
   "runs": [
     {
+      "id": "swebench-lite-300-headroom-042",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-lite-300-headroom-042",
+      "date": "2026-10-30",
+      "benchmark": "SWE-bench Lite (300), Sonnet 5.5, effort medium",
+      "versions": {
+        "distil": "1.58.0",
+        "headroom": "0.42.0"
+      },
+      "note": "first Headroom run on this harness. distil and Headroom are both non-inferior to plain and neither shows a cost difference (both $-per-solved intervals cross 1, both point estimates above it). Median task is 4 steps: the compressed arms took more steps and sent more input tokens than plain"
+    },
+    {
+      "id": "swebench-lite-300-distil-recall",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-lite-300-distil-recall",
+      "date": "2026-10-30",
+      "benchmark": "SWE-bench Lite (300), Sonnet 5.5, effort medium, distil with visible recall",
+      "versions": {
+        "distil": "1.58.0 + visible-recall change"
+      },
+      "note": "plain rows are reused from swebench-lite-300-headroom-042 (same model, effort and tasks). The visible-recall change cut distil's cost overhead from +7.4% to +2.8%; the interval still crosses 1, so no cost difference is shown"
+    },
+    {
       "id": "swebench-verified-hard-max",
       "kind": "swebench_outcome",
       "dir": "benchmarks/results/swebench-verified-hard-max",
