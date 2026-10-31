@@ -2878,6 +2878,10 @@ def cmd_default(args: argparse.Namespace) -> int:
                 st3, msg3 = ts
                 print(("✗ " if st3 == "error" else "✓ ") + msg3)
         print(f"\nAll base-URL clients now route through distil. Next: source {rc}")
+        print(
+            "  ⚠ Codex is NOT covered: it ignores OPENAI_BASE_URL and opens a WebSocket. "
+            "Use the default alias mode for it (`distil onboard codex`), API-key auth only."
+        )
         # The single-point-of-failure warning is real and stays, but it is one
         # line: a persistent pin whose service is down takes every session out,
         # and `distil wrap` now refuses to start into that state rather than
@@ -3763,6 +3767,8 @@ def cmd_wrap(args: argparse.Namespace) -> int:
     # (and hot-swap worker) inherit it, so wrapped-agent traffic counts as
     # "wrap" while a standalone proxy counts as "proxy".
     _os.environ["DISTIL_SURFACE"] = "wrap"
+    # Project label for the per-project savings breakdown: the directory name only.
+    _os.environ["DISTIL_PROJECT"] = _os.path.basename(_os.getcwd())
     command = list(args.command)
     if command and command[0] == "--":  # argparse REMAINDER keeps the separator
         command = command[1:]
@@ -5693,6 +5699,12 @@ def build_parser() -> argparse.ArgumentParser:
     # `distil audit` — distil as referee of any compressor (distil/referee.py, ADR 0024).
     # Opt-in and capped; hidden from the front door like `distil ab`.
     _register_audit(sub)
+
+    from .replay_model import register as _register_replay_model
+
+    # `distil replay-model` — does a cheaper model make the same decisions on YOUR traffic?
+    # Dry-run is free (sessions metadata only); live requires --spend-cap.
+    _register_replay_model(sub)
 
     dash = sub.add_parser(
         "dashboard",

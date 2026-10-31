@@ -316,6 +316,10 @@ def catalog() -> list[Target]:
     out: list[Target] = []
     for cmd, (env_var, _upstream, label, _extra) in AGENT_PRESETS.items():
         meta = AGENT_META[cmd]
+        if cmd in CONFIG_PRESETS:
+            # Codex: `wrap` also applies the config preset, and that is what routes it
+            # (its env var is not read). One agent, one entry, counted once.
+            continue
         out.append(
             Target(
                 key=cmd,

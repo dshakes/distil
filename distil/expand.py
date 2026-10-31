@@ -236,10 +236,12 @@ def run_expand_loop(
     *,
     max_iters: int = 4,
     on_signal: Callable[[str, str], None] | None = record_signal,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Server-side recovery loop. While the model asks to expand, resolve the handles
     and re-query ``post`` with the recovered content appended — transparently to the
     agent. Returns the final (non-expand) response. ``post(body) -> parsed response``.
+    *model* names the model when the body does not (Bedrock/Vertex carry it in the URL).
 
     The loop is bounded by ``max_iters`` so a misbehaving model can't spin forever;
     after the cap, the latest response is returned as-is.
@@ -258,17 +260,17 @@ def run_expand_loop(
             {"role": "user", "content": results},
         ]
         resp = post({**body, "messages": messages})
-        _taint(body, resp.get("content"))
+        _taint(body, resp.get("content"), model)
     return resp
 
 
-def _taint(body: dict[str, Any], blocks: Any) -> None:
+def _taint(body: dict[str, Any], blocks: Any, model: str | None = None) -> None:
     """Thinking the model produced after a hidden expand round is signed over a prefix
     the client will never send back. On a preserved-thinking model (ADR 0028) it is dropped
     from every later request (the API allows removing the newest), never 400'd on."""
     from .adapters.anthropic import preserved_thinking
 
-    if isinstance(blocks, list) and preserved_thinking(str(body.get("model") or "")):
+    if isinstance(blocks, list) and preserved_thinking(str(body.get("model") or model or "")):
         from . import thinkguard
 
         thinkguard.drop(blocks)

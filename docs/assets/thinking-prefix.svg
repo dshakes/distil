@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="690" viewBox="0 0 1200 690" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="tpTitle tpDesc">
+  <title id="tpTitle">Why editing history breaks a signed thinking block — and how distil keeps it valid</title>
+  <desc id="tpDesc">A sequence diagram with three lifelines: the agent, distil and the Claude API. On preserved-thinking Claude models (Fable and Mythos 5.1, Opus, Sonnet and Haiku 5.5) earlier turns' thinking blocks stay in context, and each block's signature binds the prefix it was produced after: the system prompt, the tools and every content block before it, with thinking blocks chained to the previous one instead; JSON formatting and key order are ignored. The upper band, without the guard: on turn N the request carries the user message and tool result A, and the API returns a thinking block T1 signed over that prefix. On turn N plus 1 a proxy rewrites tool result A into a digest, so the prefix hash no longer matches the one T1 was signed over, and newer accounts get a 400 invalid signature (older accounts are billed for the block as garbage input). The lower band, with distil, shows three moves. Freeze: prefix replay forwards every unchanged item exactly as it went out last turn, only new items get fresh decisions, and output shaping, the only transform touching the system prompt, is off for the lineage. First sight: with thinking on, each tool result gets its compression decision, a digest recoverable through distil_expand, in the request where it first appears and is then frozen, so there is no later recency-exit rewrite. Drop: the one sanctioned edit, a cold-point eviction after the cache expired, also drops every thinking block after it and keeps them dropped, which the API allows because it removes the newest. As a backstop, thinkguard checks every forwarded thinking block against the prefix hash recorded when it was produced; from the first block whose prefix distil changed it drops that block and every later one, reports the x-distil-thinking-dropped header, and never lets a 400 through. A change the client itself made is passed through untouched, and the ledger is content-free, hashes only. Either way a thinking block stays valid or is dropped whole, never altered, and the API answers 200.</desc>
+  <defs>
+    <linearGradient id="tbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
+    <linearGradient id="tcard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
+    <pattern id="tdots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.02"/></pattern>
+    <marker id="tv" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#8b7bff"/></marker>
+    <marker id="tt" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5ad1c9"/></marker>
+    <marker id="tc" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff8a6b"/></marker>
+    <style>
+      @keyframes flow{to{stroke-dashoffset:-140}}
+      @keyframes travelA{0%{transform:translateX(0);opacity:0}10%{opacity:1}90%{opacity:1}100%{transform:translateX(900px);opacity:0}}
+      @keyframes travelB{0%{transform:translateX(0);opacity:0}10%{opacity:1}90%{opacity:1}100%{transform:translateX(450px);opacity:0}}
+      @keyframes puls{0%,100%{opacity:.5}50%{opacity:1}}
+      .fl{animation:flow 2.6s linear infinite}
+      .ta{animation:travelA 4.2s ease-in-out infinite}
+      .tb{animation:travelB 2.8s ease-in-out infinite}
+      .dot{animation:puls 2.4s ease-in-out infinite}
+      @media(prefers-reduced-motion:reduce){.fl,.ta,.tb,.dot{animation:none}}
+    </style>
+  </defs>
+  <rect width="1200" height="690" fill="url(#tbg)"/><rect width="1200" height="690" fill="url(#tdots)"/>
+
+  <text x="24" y="34" font-size="22" font-weight="800" letter-spacing="-0.3" fill="#f2f3f7">Why editing history breaks a signed thinking block <tspan fill="#9aa1b3" font-weight="500" font-size="16">— and how distil keeps it valid</tspan></text>
+
+  <!-- lifeline heads -->
+  <g font-size="13" font-weight="700" text-anchor="middle" fill="#f2f3f7">
+    <rect x="70" y="50" width="160" height="28" rx="9" fill="url(#tcard)" stroke="#8b7bff" stroke-width="1.6"/><text x="150" y="69">Agent</text>
+    <rect x="520" y="50" width="160" height="28" rx="9" fill="url(#tcard)" stroke="#5ad1c9" stroke-width="1.6"/><text x="600" y="69">distil</text>
+    <rect x="970" y="50" width="160" height="28" rx="9" fill="url(#tcard)" stroke="#8b7bff" stroke-width="1.6"/><text x="1050" y="69">Claude API</text>
+  </g>
+
+  <!-- UPPER BAND: without the guard -->
+  <rect x="24" y="92" width="1152" height="262" rx="16" fill="#1a1016" stroke="#ff8a6b" stroke-width="1.8"/>
+  <text x="44" y="116" font-size="12" letter-spacing="2" font-weight="800" fill="#ff8a6b">WITHOUT THE GUARD — a proxy re-renders history</text>
+  <g stroke="#3a3f55" stroke-width="1.4" stroke-dasharray="4 6"><line x1="150" y1="80" x2="150" y2="354"/><line x1="600" y1="80" x2="600" y2="354"/><line x1="1050" y1="80" x2="1050" y2="354"/></g>
+
+  <!-- turn N request -->
+  <line class="fl" x1="150" y1="150" x2="1048" y2="150" stroke="#8b7bff" stroke-width="2.6" stroke-dasharray="5 9" marker-end="url(#tv)"/>
+  <circle class="ta" cx="150" cy="150" r="5" fill="#c6bdff"/>
+  <rect x="380" y="137" width="440" height="26" rx="13" fill="#0a0b12" stroke="#8b7bff"/>
+  <text x="600" y="155" text-anchor="middle" font-size="12.5" fill="#f2f3f7">turn N request — [user, tool_result A]</text>
+  <!-- thinking returned -->
+  <line class="fl" x1="1050" y1="190" x2="152" y2="190" stroke="#5ad1c9" stroke-width="2.6" stroke-dasharray="5 9" marker-end="url(#tt)"/>
+  <rect x="380" y="177" width="440" height="26" rx="13" fill="#0a0b12" stroke="#5ad1c9"/>
+  <text x="600" y="195" text-anchor="middle" font-size="12.5" fill="#f2f3f7">T₁ thinking returned, signed over prefix <tspan fill="#5ad1c9" font-weight="700">#a1f…</tspan></text>
+
+  <!-- turn N+1 -->
+  <line class="fl" x1="150" y1="226" x2="598" y2="226" stroke="#8b7bff" stroke-width="2.6" stroke-dasharray="5 9" marker-end="url(#tv)"/>
+  <text x="375" y="218" text-anchor="middle" font-size="12.5" fill="#f2f3f7">turn N+1: same history + T₁</text>
+  <rect x="440" y="240" width="320" height="30" rx="10" fill="#2a1519" stroke="#ff8a6b" stroke-width="1.8"/>
+  <text x="600" y="260" text-anchor="middle" font-size="13" font-weight="700" fill="#ffb09a">rewrites tool_result A → digest</text>
+  <line class="fl" x1="600" y1="296" x2="1048" y2="296" stroke="#ff8a6b" stroke-width="2.6" stroke-dasharray="5 9" marker-end="url(#tc)"/>
+  <circle class="tb" cx="600" cy="296" r="5" fill="#ffb09a"/>
+  <text x="825" y="288" text-anchor="middle" font-size="12.5" fill="#f2f3f7">prefix <tspan fill="#ff8a6b" font-weight="700">#7c2…</tspan> ≠ <tspan fill="#5ad1c9" font-weight="700">#a1f…</tspan></text>
+  <!-- rejection -->
+  <line class="fl" x1="1050" y1="334" x2="152" y2="334" stroke="#ff8a6b" stroke-width="2.6" stroke-dasharray="5 9" marker-end="url(#tc)"/>
+  <rect x="440" y="321" width="320" height="26" rx="13" fill="#2a1519" stroke="#ff8a6b" stroke-width="1.8"/>
+  <text x="600" y="339" text-anchor="middle" font-size="12.5" font-weight="700" fill="#ffb09a">400 (newer accounts) · block fails</text>
+
+  <!-- LOWER BAND: with distil -->
+  <rect x="24" y="368" width="1152" height="304" rx="16" fill="#0d1a15" stroke="#5ad19a" stroke-width="1.8"/>
+  <text x="44" y="392" font-size="12" letter-spacing="2" font-weight="800" fill="#5ad19a">WITH DISTIL — turn N+1, three moves keep T₁ valid</text>
+
+  <g transform="translate(44,404)"><rect width="356" height="196" rx="14" fill="url(#tcard)" stroke="#5ad19a" stroke-width="1.8"/>
+    <circle class="dot" cx="24" cy="26" r="6" fill="#5ad19a"/><text x="40" y="31" font-size="15" font-weight="800" fill="#f2f3f7">1 · FREEZE</text>
+    <g font-size="12.5" fill="#c9d0e0"><text x="18" y="58">Prefix replay forwards every unchanged</text><text x="18" y="76">item exactly as it went out last turn.</text><text x="18" y="94">Only new items get fresh decisions.</text><text x="18" y="112">Output shaping, the only transform that</text><text x="18" y="130">touches system, is off for the lineage.</text></g>
+    <rect x="18" y="150" width="320" height="30" rx="10" fill="#10281d" stroke="#5ad19a"/>
+    <text x="178" y="170" text-anchor="middle" font-size="12.5" font-weight="700" fill="#a0ecc4">prefix #a1f… = #a1f… ✓ byte-for-byte</text>
+  </g>
+  <g transform="translate(412,404)"><rect width="356" height="196" rx="14" fill="url(#tcard)" stroke="#5ad1c9" stroke-width="1.8"/>
+    <circle class="dot" cx="24" cy="26" r="6" fill="#5ad1c9"/><text x="40" y="31" font-size="15" font-weight="800" fill="#f2f3f7">2 · FIRST SIGHT</text>
+    <g font-size="12.5" fill="#c9d0e0"><text x="18" y="58">With thinking on, each tool result gets</text><text x="18" y="76">its decision in the request where it first</text><text x="18" y="94">appears (digest, recoverable through</text><text x="18" y="112">distil_expand), then it is frozen.</text><text x="18" y="130">No later recency-exit rewrite.</text></g>
+    <rect x="18" y="150" width="320" height="30" rx="10" fill="#0f2a2d" stroke="#5ad1c9"/>
+    <text x="178" y="170" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9eeae4">decided once · never revisited</text>
+  </g>
+  <g transform="translate(780,404)"><rect width="356" height="196" rx="14" fill="url(#tcard)" stroke="#8b7bff" stroke-width="1.8"/>
+    <circle class="dot" cx="24" cy="26" r="6" fill="#8b7bff"/><text x="40" y="31" font-size="15" font-weight="800" fill="#f2f3f7">3 · DROP</text>
+    <g font-size="12.5" fill="#c9d0e0"><text x="18" y="58">A cold-point eviction also drops every</text><text x="18" y="76">later thinking block (the API allows it).</text><text x="18" y="94">Backstop: thinkguard checks each block</text><text x="18" y="112">against its recorded prefix hash; from</text><text x="18" y="130">the first changed one it drops that and</text><text x="18" y="146">later ones, never a 400.</text></g>
+    <rect x="18" y="156" width="320" height="26" rx="10" fill="#1a1636" stroke="#8b7bff"/>
+    <text x="178" y="174" text-anchor="middle" font-size="12" font-weight="700" fill="#c6bdff">x-distil-thinking-dropped reports it</text>
+  </g>
+
+  <!-- outcome strip -->
+  <rect x="44" y="612" width="1092" height="48" rx="12" fill="#10281d" stroke="#5ad19a" stroke-width="1.8"/>
+  <line class="fl" x1="64" y1="636" x2="112" y2="636" stroke="#5ad19a" stroke-width="2.6" stroke-dasharray="5 9" marker-end="url(#tt)"/>
+  <text x="128" y="632" font-size="14" font-weight="800" fill="#f2f3f7">T₁ stays valid, or is dropped whole — never altered</text>
+  <text x="128" y="650" font-size="12" fill="#9aa1b3">A change the client made is passed through untouched · the ledger is content-free (hashes only)</text>
+  <rect x="1006" y="623" width="112" height="26" rx="13" fill="#5ad19a"/>
+  <text x="1062" y="641" text-anchor="middle" font-size="13" font-weight="800" fill="#06130d">API → 200</text>
+</svg>

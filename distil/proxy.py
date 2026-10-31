@@ -40,6 +40,8 @@ from .adapters.gemini import is_gemini_path
 from .httpguard import (
     framing_rejection,
     is_compressible_path,
+    is_eventstream_path,
+    sigv4_refusal,
     is_messages_path,
     parse_content_length,
     safe_forward_path,
@@ -489,6 +491,16 @@ def _adapter_census() -> dict[str, int] | None:
         return None
 
 
+_loops_tls = threading.local()
+
+
+def _take_loops() -> dict[str, Any] | None:
+    """This thread's loop/re-fetch record for the request just compressed (read once)."""
+    rec = getattr(_loops_tls, "record", None)
+    _loops_tls.record = None
+    return rec
+
+
 def _adapter_quote_hazard() -> dict[str, int] | None:
     """This thread's most recent quote-survival counts, or None when no edit needed one."""
     try:
@@ -761,6 +773,28 @@ def build_handler(
     def _on_compressed(kind: str, original: Any, compressed: Any, store: Any) -> None:
         """After the messages/contents compressors (serve_core): tally what was digested
         by content-free signature, and feed the live retention meter (messages only)."""
+        _loops_tls.record = None
+        try:  # extra steps the agent took, and which of them compression caused
+            from .loops import detect, feed_stats
+
+            _rep = detect(compressed if compressed is not None else [])
+            _loops_tls.record = _rep.as_record()
+            if _rep.handles and _learn_stats is not None and store is not None:
+                from .learn import signature
+
+                def _sig(h: str) -> str | None:
+                    from .expand import is_miss
+
+                    try:
+                        text = store.expand(h)
+                        return None if is_miss(text) else signature(text)
+                    except Exception:  # noqa: BLE001 — a diagnostic must never break a request
+                        return None
+
+                if feed_stats(_rep, _learn_stats, _sig):
+                    _learn_stats.save()
+        except Exception:  # noqa: BLE001 — a diagnostic must never break a request
+            log.debug("loop detection failed", exc_info=True)
         if _learn_stats is not None and getattr(store, "handles", None):
             from .learn import signature
 
@@ -943,6 +977,10 @@ def build_handler(
                 _mark_session_traffic()
             _warn_if_version_skew(_version_state)
             p = strip_query(self.path)
+            _refusal = sigv4_refusal(p, self.headers.get("Authorization"))
+            if _refusal:
+                self._reject(400, _refusal)
+                return
             if is_compressible_path(p) or is_gemini_path(p):
                 # Content-free integration-surface counter (census schema 3).
                 try:
@@ -967,6 +1005,23 @@ def build_handler(
         def do_GET(self) -> None:  # noqa: N802
             if strip_query(self.path) == "/distil/health":
                 self._respond_health()
+                return
+            if "websocket" in (self.headers.get("Upgrade") or "").lower():
+                # Codex opens the Responses API as a WebSocket first. This proxy is
+                # plain HTTP: relaying the upgrade as a GET would silently bypass
+                # compression, so refuse loudly and let the client use HTTP POST.
+                log.warning("WebSocket upgrade refused on %s — client should use HTTP", self.path)
+                body = (
+                    b'{"error":{"type":"websocket_unsupported","message":"distil proxy '
+                    b"speaks HTTP only; disable WebSocket (codex: supports_websockets=false, "
+                    b'or use distil wrap -- codex)"}}'
+                )
+                self.send_response(426)
+                self.send_header("Upgrade", "http/1.1")
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
                 return
             self._passthrough()
 
@@ -1131,7 +1186,11 @@ def build_handler(
             # injected, so stubs already in the history remain recoverable and the
             # cached tools prefix does not change shape at the trip.
             _held, _req_mode = _request_mode()
-            _verb = verbatim or _held
+            # Bedrock's streamed answer is binary eventstream: no digest handles (so no
+            # distil_expand tool the splice/loop could not resolve), Tier-0 only.
+            _eventstream = is_eventstream_path(self.path)
+            _expand_here = expand and not _eventstream
+            _verb = verbatim or _held or _eventstream
             _shape_ok = _lossy_ok and not _held
             if _held and savings is not None:
                 savings.mode = _req_mode
@@ -1182,6 +1241,7 @@ def build_handler(
             # Gemini paths    → Gemini adapter (contents branch, below)
             _path = strip_query(self.path)
 
+            self._distil_first_sight = False  # per request: keep-alive reuses `self`
             if _hold:
                 # Control arm: the original bytes go upstream untouched (body is not
                 # reassigned, so _serialize_if_changed returns `raw`), nothing is booked.
@@ -1196,7 +1256,7 @@ def build_handler(
                     self.path,
                     count=_count_messages,
                     verbatim=_verb,
-                    expand=expand,
+                    expand=_expand_here,
                     mode=_req_mode,
                     keep=_learn_keep,
                     session_delta=session_delta,
@@ -1211,6 +1271,7 @@ def build_handler(
                     return
                 body, store, extras = _out.body, _out.store, _out.extras
                 before_tok, after_tok = _out.before_tok, _out.after_tok
+                self._distil_first_sight = extras.get("x-distil-first-sight") == "1"
                 self._distil_cold_key = _out.cold_key
                 if savings is not None:
                     _pending_savings = _out.pending
@@ -1219,6 +1280,14 @@ def build_handler(
                 extras["x-distil-drift-guard"] = "held"
             new_raw = _serialize_if_changed(raw, body)
             _span_model = body.get("model") or _model_from_path(self.path) or "unknown"
+
+            # Context guard parameters (computed once; used across all relay paths below).
+            # tokens_saved is the message-level compression delta; beta_header tells the
+            # guard whether the client has a context-1m entitlement.
+            _guard_tokens_saved = max(0, (before_tok or 0) - (after_tok or 0))
+            _guard_beta = next(
+                (v for k, v in headers.items() if k.lower() == "anthropic-beta"), None
+            )
 
             # Decide shadow sampling BEFORE relaying so the marker header can be
             # sent on the streaming path too (headers go out before the body).
@@ -1241,9 +1310,12 @@ def build_handler(
             # expand loop (losing TTFT); streamexpand now speculatively streams and
             # intercepts a distil_expand call mid-stream, splicing the re-query so the
             # agent keeps streaming AND the digest stays recoverable.
-            want_stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
+            # Bedrock streams by URL (/invoke-with-response-stream), not by a body flag.
+            want_stream = (
+                bool(body.get("stream")) or ":streamGenerateContent" in self.path or _eventstream
+            )
             t_req = time.monotonic()  # upstream + relay latency (compression excluded)
-            _intercept = _expand_should_intercept(expand, store, body)
+            _intercept = _expand_should_intercept(_expand_here, store, body)
             # The splice only speaks Anthropic Messages SSE. It used to run for ANY
             # provider whose request carried a handle, and on an OpenAI or Gemini
             # stream every event fell through to the "unknown keepalive" arm: each
@@ -1311,6 +1383,12 @@ def build_handler(
                     )
 
                 _usage_x: dict[str, int] = {}
+
+                def _nudge_usage_x(u: dict[str, Any]) -> None:
+                    from . import context_guard as _cg
+
+                    _cg.nudge_usage(u, _guard_tokens_saved, _span_model, beta_header=_guard_beta)
+
                 with request_span(_span_model, self.path) as _span:
                     status_x = stream_with_expand(
                         self,
@@ -1321,6 +1399,8 @@ def build_handler(
                         extras=extras,
                         usage_sink=_usage_x,
                         on_signal=_on_signal,
+                        model=_span_model if _span_model != "unknown" else None,
+                        on_usage_nudge=_nudge_usage_x,
                     )
                     # After the splice, not before: the response headers were flushed the
                     # moment the first upstream frame arrived, which is before any expand
@@ -1374,6 +1454,16 @@ def build_handler(
                 from .streamrelay import stream_upstream
 
                 _usage_s: dict[str, int] = {}
+                from . import context_guard as _cg_s
+
+                _stream_guard = _cg_s.StreamGuard(
+                    _guard_tokens_saved, _span_model, beta_header=_guard_beta
+                )
+
+                def _on_stream_error(code: int, rbody_err: bytes) -> None:
+                    if code == 400:
+                        _cg_s.learn_from_error(_span_model, rbody_err, beta_header=_guard_beta)
+
                 with request_span(_span_model, self.path) as _span:
                     status_s, _rbody_opt = stream_upstream(
                         self,
@@ -1383,9 +1473,20 @@ def build_handler(
                         timeout=_UPSTREAM_TIMEOUT,
                         hop_by_hop=_HOP_BY_HOP,
                         extras=extras,
-                        want_body=False,  # v3 shadow re-issues its own temp-0 calls; no need to buffer
-                        usage_sink=_usage_s,
+                        # Binary eventstream: kept (usage is read from decoded frames
+                        # below) and never fed to the SSE guard or the text usage scan.
+                        want_body=_eventstream,
+                        usage_sink=None if _eventstream else _usage_s,
+                        chunk_transform=None if _eventstream else _stream_guard,
+                        on_upstream_error=_on_stream_error,
                     )
+                    if _eventstream and _rbody_opt:
+                        from .streamrelay import eventstream_payloads, scan_usage
+
+                        try:
+                            _usage_s = scan_usage(eventstream_payloads(_rbody_opt))
+                        except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
+                            log.debug("eventstream usage scan failed", exc_info=True)
                     set_result_attrs(
                         _span,
                         original_tokens=before_tok,
@@ -1444,11 +1545,15 @@ def build_handler(
             # final body (as this did until 1.54) recorded the last call and dropped the
             # first one and every intermediate re-query, so a request that expanded
             # looked cheaper than it was — biasing every savings figure toward distil.
-            from .streamrelay import add_usage, scan_usage
+            from .streamrelay import add_usage, eventstream_payloads, scan_usage
 
             _usage_b: dict[str, int] = {}
             try:
-                _usage_b = scan_usage(rbody[:16384] + b"\n" + rbody[-16384:])
+                _usage_b = scan_usage(
+                    eventstream_payloads(rbody)
+                    if _eventstream
+                    else rbody[:16384] + b"\n" + rbody[-16384:]
+                )
             except Exception:  # noqa: BLE001 — usage capture is bookkeeping only
                 pass
 
@@ -1456,7 +1561,7 @@ def build_handler(
             # the local store and re-query, invisibly, before returning to the agent.
             # Dispatches to the Gemini loop (contents/functionCall shape) or the
             # Anthropic/OpenAI loop (messages/tool_use shape) based on body type.
-            if _expand_should_intercept(expand, store, body):
+            if _expand_should_intercept(_expand_here, store, body):
                 try:
                     resp_json = json.loads(rbody)
                 except (ValueError, TypeError):
@@ -1515,12 +1620,32 @@ def build_handler(
                 _bt, _at, _m = _pending_savings
                 savings.record(_bt, _at + requery_input_equiv(_usage_b, _m), model=_m)
                 savings.maybe_flush(every=flush_every)
+            # Context guard: learn from "prompt is too long" errors; nudge usage
+            # on 2xx so the client compacts before hitting the wall. Both are
+            # fail-open — a parsing error leaves rbody/rhdrs unmodified.
+            if status == 400:
+                from . import context_guard as _cg_b
+
+                _cg_b.learn_from_error(_span_model, rbody, beta_header=_guard_beta)
             if _sse_shape is not None and 200 <= status < 300:
                 # The client asked for a stream and we buffered to run the expand
                 # loop; hand the finished answer back in the wire format it expects.
+                # Nudge usage in the JSON body BEFORE sse_body converts it to SSE
+                # so the synthetic SSE stream carries the inflated values.
+                from . import context_guard as _cg_b
+
+                rbody = _cg_b.nudge_body(
+                    rbody, _guard_tokens_saved, _span_model, beta_header=_guard_beta
+                )
                 _sse = sse_body(_sse_shape, rhdrs, rbody)
                 if _sse is not None:
                     rhdrs, rbody = _sse
+            elif 200 <= status < 300:
+                from . import context_guard as _cg_b
+
+                rbody = _cg_b.nudge_body(
+                    rbody, _guard_tokens_saved, _span_model, beta_header=_guard_beta
+                )
             self._relay(status, rhdrs, rbody, extras=extras)
 
         def _emit_detail(
@@ -1676,6 +1801,21 @@ def build_handler(
                     _u.get("cache_creation_input_tokens", 0) or 0
                 )
                 _billed_full = int(_u.get("input_tokens") or 0) + _cache
+                # Learned cache TTL (ttl_estimator): was the prefix still cached after the idle
+                # gap this request arrived on? Anthropic reports cache_read_input_tokens, OpenAI
+                # prompt_tokens_details.cached_tokens. Fail-open; once per request.
+                _ck_obs = getattr(self, "_distil_cold_key", None)
+                if _ck_obs is not None:
+                    try:
+                        _det = _u.get("prompt_tokens_details")
+                        _read = int(
+                            _u.get("cache_read_input_tokens")
+                            or (_det.get("cached_tokens") if isinstance(_det, dict) else 0)
+                            or 0
+                        )
+                        _coldpoint.observe_usage(_ck_obs, _read)
+                    except (TypeError, ValueError):
+                        pass
                 # A+C: feed the (heuristic estimate, full billed) pairing into the token calibrator
                 # so reported counts converge to the real tokenizer. Content-free, fail-open.
                 # The estimate describes the FIRST call's prompt; expand re-queries (summed
@@ -1820,6 +1960,9 @@ def build_handler(
                     # from "the digester declined" (a defect) from "mostly recent"
                     # (transient). Content-free; see adapters.anthropic.take_census.
                     "census": _adapter_census(),
+                    # Extra steps: repeated calls in the newest round, and how many re-fetched
+                    # a digest (compression likely caused them). Counts only; absent = none.
+                    "loops": _take_loops(),
                     # Does the exact-quote guarantee actually hold? For every
                     # literal-match edit in the history, whether its `old_string` still
                     # occurs in the payload we forwarded. Two counts, no text. Absent
@@ -1875,6 +2018,9 @@ def build_handler(
             # Captured now, on the request thread: a keep-alive connection's next request
             # re-sets it before the replay thread finishes.
             _conv = getattr(self, "_distil_conv", "") or ""
+            # First-sight rows are their own mode (ADR 0028 addendum 3): the newest result
+            # goes out digested even where the recency window used to protect it.
+            _first_sight = bool(getattr(self, "_distil_first_sight", False))
             # ponytail: the unpaired fallback keeps v4's 1/3 split; the paired path
             # ignores it entirely, since every sample now feeds both arms.
             is_aa = _random.random() < 1 / 3
@@ -1945,15 +2091,18 @@ def build_handler(
                     # Evidence for diagnosing divergences and for auditing what each row
                     # actually compared. Every value is a hash, a count or a flag —
                     # content-free, same posture as the savings ledger.
+                    _mode = _request_mode()[1]
+                    if _first_sight and _mode == "digest":
+                        _mode = "digest-first-sight"
                     ev: dict[str, Any] = {
                         "digest": hashlib.sha256(orig_raw).hexdigest()[:16],
-                        "mode": _request_mode()[1],
+                        "mode": _mode,
                         # Every lever that shaped the B arm. `compressed_raw` already
                         # carries the shaping directive, so a gate deciding whether to
                         # shape must read only shape=off rows (see output.resolve_shape_output).
                         # A drift-guard hold serves no shaping, so its rows are shape=off.
                         "levers": {
-                            "compression": _request_mode()[1],
+                            "compression": _mode,
                             "shape": "off"
                             if _request_mode()[0] or _thinking_lineage(compressed_raw)
                             else shape_output,
@@ -2689,7 +2838,12 @@ def wrap_run(
         # finds the child: the handler no-ops on the None placeholder, then the
         # single-statement store binds the real proc as tightly as possible.
         proc_holder.append(None)
-        proc_holder[0] = proc = subprocess.Popen([*command, *config_argv], env=child_env)
+        proc_holder[0] = proc = subprocess.Popen(
+            [*command[:1], *config_argv, *command[1:]]
+            if isinstance(config_argv, config_wrap.LeadingArgs)
+            else [*command, *config_argv],
+            env=child_env,
+        )
         code = proc.wait()
     except FileNotFoundError:
         print(f"distil wrap: command not found: {command[0]}", file=sys.stderr)

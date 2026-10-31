@@ -1866,6 +1866,34 @@ class TestQuoteSurvival:
         sid = self._session(tmp_path, [None, None])
         assert dz.dissect(sid).quote_survival is None
 
+    def test_loops_sum_across_requests_and_absent_is_unknown(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+        row = {"calls": 2, "repeats": 1, "identical": 1, "reread": 0, "rerun": 1, "after_digest": 1}
+        sess = tmp_path / "sessions"
+        sess.mkdir(parents=True, exist_ok=True)
+        for sid, loops in (("s-l1", [row, row, None]), ("s-l0", [None])):
+            (sess / f"{sid}.requests.jsonl").write_text(
+                "\n".join(
+                    json.dumps(
+                        {
+                            "ts": 1000.0 + i,
+                            "model": "m",
+                            "status": 200,
+                            "booked": True,
+                            "mode": "digest",
+                            "compressible_tokens": 1000,
+                            "tokens_saved": 100,
+                            "loops": r,
+                        }
+                    )
+                    for i, r in enumerate(loops)
+                )
+                + "\n"
+            )
+        got = dz.dissect("s-l1").loops
+        assert got is not None and (got["repeats"], got["after_digest"], got["calls"]) == (2, 2, 4)
+        assert dz.dissect("s-l0").loops is None
+
     def test_a_lost_quote_is_raised_as_an_anomaly(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
         sid = self._session(tmp_path, [{"survived": 4, "lost": 2}])

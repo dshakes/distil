@@ -316,6 +316,7 @@ CASES = [
     ("grok", "openai", OPENAI_SDK_LITERAL, lambda b: _templated_client_base("grok", b)),
     ("kimi", "openai", OPENAI_SDK_LITERAL, lambda b: _templated_client_base("kimi", b)),
     ("openhands", "openai", OPENAI_SDK_LITERAL, lambda b: _templated_client_base("openhands", b)),
+    ("openclaude", "openai", OPENAI_SDK_LITERAL, lambda b: _templated_client_base("openclaude", b)),
 ]
 
 _BODY_BY_PROVIDER = {

@@ -11,6 +11,7 @@ cache-aware compression beats naive compression.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 # The single source of model facts the code relies on (drift canary:
@@ -29,9 +30,27 @@ DEFAULT_MODEL = "claude-opus-4-8"
 DEFAULT_OPENAI_MODEL = "gpt-5.2"
 
 #: Model ids distil routes but deliberately does NOT price: ``resolve()`` returns None
-#: for them and callers count their tokens unweighted (never at Claude rates). Empty since
-#: the OpenAI and Gemini rows below: kept so a model can be routed before it is priced.
-UNPRICED: frozenset[str] = frozenset()
+#: for them and callers count their tokens unweighted (never at Claude rates).
+UNPRICED: frozenset[str] = frozenset(
+    {
+        # These are prefix keys in distil/context_guard.CONTEXT_WINDOWS used for context-window
+        # lookup, not billing. The full model IDs (e.g. claude-opus-4-5, gemini-2.5-pro) are
+        # priced in CATALOG below; these shorter prefixes must not be priced as standalone IDs.
+        "claude-opus-4",
+        "claude-sonnet-4",
+        "claude-haiku-4",
+        "claude-haiku-5",
+        "gpt-6",
+        "gpt-5.6",
+        "gpt-5.3",
+        "gemini-3",
+        "gemini-2.5",
+        "gemini-2",
+        # Routed, priced only per call from TIERED (its >100k long-prompt tier bills every
+        # token at 5x, which a one-rate CATALOG row would underbill).
+        "claude-haiku-5-5",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +61,9 @@ class Pricing:
     cache_write_mult: float = CACHE_WRITE_5M_MULT
     cache_read_mult: float = CACHE_READ_MULT
     cache_write_1h_mult: float = CACHE_WRITE_1H_MULT
+    #: ``(threshold_tokens, multiplier)`` — every token billed at ``multiplier`` times
+    #: the base rate once total input exceeds the threshold. None for no tier.
+    long_tier: tuple[int, float] | None = None
 
     # per-token USD
     @property
@@ -85,10 +107,17 @@ CATALOG: dict[str, Pricing] = {
     "claude-sonnet-5": Pricing("claude-sonnet-5", 2.0, 10.0),
     "claude-sonnet-4-6": Pricing("claude-sonnet-4-6", 3.0, 15.0),
     "claude-sonnet-4-5": Pricing("claude-sonnet-4-5", 3.0, 15.0),
-    # claude-haiku-5-5 is deliberately unpriced: every token bills 5x once a prompt passes
-    # 100k, and a one-tier row would underbill long prompts 5x. The SWE-bench harness
-    # prices it per call (benchmarks/swebench_outcome/agent.py LONG_TIER).
+    # claude-haiku-5-5 is deliberately NOT here: prompts >100k bill every token at 5x, and
+    # request_cost/savings/policysim price a row at one tier. TIERED below carries it for
+    # callers that apply long_tier per call (replay-model).
     "claude-haiku-4-5": Pricing("claude-haiku-4-5", 1.0, 5.0),
+}
+
+
+#: Rows with a per-call long-prompt tier, kept out of CATALOG so resolve() never prices them
+#: at one rate. Only for callers that apply ``long_tier`` themselves.
+TIERED: dict[str, Pricing] = {
+    "claude-haiku-5-5": Pricing("claude-haiku-5-5", 0.10, 0.50, long_tier=(100_000, 5.0)),
 }
 
 
@@ -189,8 +218,8 @@ def resolve(model_id: str | None) -> Pricing | None:
     for pre in _ROUTE_PREFIXES:
         if mid.startswith(pre):
             mid = mid[len(pre) :]
-    if mid.startswith("anthropic."):
-        mid = mid[len("anthropic.") :]
+    # Bedrock: ``anthropic.<id>-v1:0``, or a cross-region profile (``us.``/``eu.``/``global.``).
+    mid = re.sub(r"^(?:[a-z]{2,6}\.)?anthropic\.", "", mid)
     mid = mid.split("@", 1)[0]
     if mid in CATALOG:
         return CATALOG[mid]

@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from distil import coldpoint, prefixreplay
+from distil import coldpoint, prefixreplay, ttl_estimator
 from distil.adapters.anthropic import cold_candidates, compress_messages, evicted_stub
 
 _STUB = re.compile(
@@ -28,7 +28,9 @@ _STUB = re.compile(
 
 
 @pytest.fixture(autouse=True)
-def _fresh_state(monkeypatch):
+def _fresh_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("DISTIL_HOME", str(tmp_path))
+    ttl_estimator.reset()
     coldpoint.reset()
     prefixreplay.reset()
     monkeypatch.delenv("DISTIL_COLD_POINT", raising=False)
@@ -275,8 +277,14 @@ def test_candidates_respect_every_keep_policy() -> None:
 
 def test_the_stub_is_a_pure_function_of_the_content() -> None:
     text = _log("x")
-    assert evicted_stub(text, "abcd1234") == evicted_stub(text, "abcd1234")
-    assert _STUB.fullmatch(evicted_stub(text, "abcd1234"))
+    stub = evicted_stub(text, "abcd1234")
+    assert stub == evicted_stub(text, "abcd1234")
+    head, *carried = stub.split("\n")
+    assert _STUB.fullmatch(head)
+    # What it carries in view is verbatim lines of the original, never a rewrite, and
+    # the stub is still a real saving.
+    assert carried and set(carried) <= set(text.splitlines())
+    assert len(stub) < len(text) / 2
 
 
 def test_evicted_blocks_are_recoverable_through_the_restore_store() -> None:
@@ -285,7 +293,7 @@ def test_evicted_blocks_are_recoverable_through_the_restore_store() -> None:
     msgs = _conv(4)["messages"]
     out, store = compress_messages(msgs, evict=frozenset({"toolu_0"}))
     stub = out[2]["content"][0]["content"]
-    m = _STUB.fullmatch(stub)
+    m = _STUB.match(stub)
     assert m, stub
     assert store.expand(m.group(1)) == _log("run0")
     assert load_restore(m.group(1)) == _log("run0"), "not on disk: lost on restart"

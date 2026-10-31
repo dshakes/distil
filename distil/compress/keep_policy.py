@@ -10,6 +10,7 @@ content-aware.
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from enum import Enum
 
 
@@ -171,3 +172,56 @@ def summarize_dropped(dropped: list[str]) -> str:
     if not counts["error"] and not counts["warn"]:
         return ""
     return ", ".join(f"{n} {name}" for name in ("error", "warn", "other") if (n := counts[name]))
+
+
+# ---- identifier lines (visible recall) ----
+#
+# The lines an agent ACTS on carry identifiers: a path it opens, a URL it fetches, a SHA
+# it checks out, a `key=value` it compares. Folding them behind a handle keeps them
+# recoverable but costs a `distil_expand` round trip (or a wrong guess) every time one is
+# needed. So digest and eviction keep the densest of them in view, within a fixed share
+# of the block, and fold the rest: a repeated line adds no unseen identifier and is
+# skipped, so true repetition still folds.
+_IDENT_RE = re.compile(
+    r"https?://[^\s\"'<>)\]]+"  # URL
+    # path with >= 2 segments; starts only at a token boundary, else a long slash-free
+    # run is rescanned from every offset (quadratic: 80k chars took 10s)
+    r"|(?<![\w.~/-])(?:~/|\.{1,2}/|/)?(?:[\w.-]+/){2,}[\w.@-]+"
+    r"|\b(?=[0-9a-f]*[a-f])[0-9a-f]{7,64}\b"  # hash / short SHA
+    r"|(?<![\w:.-])[^\W\d][\w.-]{0,24}\"?[ =:]{1,3}\d+(?:\.\d+)?"  # key=number
+)
+
+#: Share of a block's characters spent keeping identifier lines in view. Tuned on a dev
+#: split of real tool output (benchmarks/results/visible-recall/): 0.10 buys most of the
+#: visible recall for a fraction of the tokens a larger share costs.
+IDENT_BUDGET = 0.10
+
+
+def identifier_lines(
+    lines: list[str], budget: int, skip: Collection[int] = frozenset()
+) -> set[int]:
+    """Indices of identifier-bearing lines to keep, densest first, within `budget` chars.
+
+    Density = distinct identifiers per character; a line whose identifiers are all
+    already kept adds nothing and is skipped. Indices in `skip` are already decided by
+    the caller and never chosen. Deterministic: a pure function of its arguments.
+    """
+    cand = []
+    for i, ln in enumerate(lines):
+        if i in skip or len(ln) + 1 > budget:
+            continue  # a line over budget can never be kept; don't scan it
+        idents = frozenset(_IDENT_RE.findall(ln))
+        if idents:
+            cand.append((-len(idents) / (len(ln) + 1), i, idents))
+    cand.sort(key=lambda c: (c[0], c[1]))
+    seen: set[str] = set()
+    out: set[int] = set()
+    used = 0
+    for _, i, idents in cand:
+        cost = len(lines[i]) + 1
+        if idents <= seen or used + cost > budget:
+            continue
+        used += cost
+        seen |= idents
+        out.add(i)
+    return out

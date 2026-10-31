@@ -16,9 +16,11 @@ import re
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler
-from typing import Any
+from typing import Any, Callable
 
 _CHUNK = 8192
+#: Response framing headers: stream_upstream sets exactly one itself, never relays them.
+_FRAMING = frozenset({"content-length", "transfer-encoding"})
 
 # Provider-reported quota state, echoed on every response as `anthropic-ratelimit-*`.
 # Worth recording because it is the ONLY first-party signal for how a request is charged
@@ -97,6 +99,32 @@ def _split_openai_input(out: dict[str, int], details: bytes) -> None:
         out["cache_read_input_tokens"] = cached
     if write:
         out["cache_creation_input_tokens"] = write
+
+
+def eventstream_payloads(blob: bytes) -> bytes:
+    """Decoded event JSON from an AWS binary eventstream (Bedrock InvokeModelWithResponseStream),
+    newline-joined, for :func:`scan_usage`. Frame = total_len(4) headers_len(4) prelude_crc(4)
+    headers payload message_crc(4); a ``chunk`` payload is ``{"bytes": base64(event JSON)}``.
+    Read-only and best-effort: CRCs are not checked and a truncated or malformed frame ends the
+    scan, since the relayed bytes are never touched."""
+    import base64
+    import json
+
+    out: list[bytes] = []
+    i = 0
+    while i + 16 <= len(blob):
+        total = int.from_bytes(blob[i : i + 4], "big")
+        hlen = int.from_bytes(blob[i + 4 : i + 8], "big")
+        if total < 16 + hlen or i + total > len(blob):
+            break
+        payload = blob[i + 12 + hlen : i + total - 4]
+        i += total
+        try:
+            obj = json.loads(payload)
+            out.append(base64.b64decode(obj["bytes"]) if "bytes" in obj else payload)
+        except (ValueError, KeyError, TypeError):
+            continue
+    return b"\n".join(out)
 
 
 def scan_usage(blob: bytes) -> dict[str, int]:
@@ -216,6 +244,8 @@ def stream_upstream(
     extras: dict[str, str] | None = None,
     want_body: bool = False,
     usage_sink: dict[str, int] | None = None,
+    chunk_transform: Callable[[bytes], bytes] | None = None,
+    on_upstream_error: Callable[[int, bytes], None] | None = None,
 ) -> tuple[int, bytes | None]:
     """Send the request and relay the response to *handler* incrementally.
 
@@ -254,6 +284,11 @@ def stream_upstream(
         # A 429 carries the most informative quota state of any response — capture it
         # here too, or the one request that proves the cap is the one we fail to record.
         handler._distil_ratelimit = capture_ratelimit(exc.headers)  # type: ignore[attr-defined]
+        if on_upstream_error is not None:
+            try:
+                on_upstream_error(exc.code, rbody)
+            except Exception:  # noqa: BLE001 — a callback must never break the relay
+                pass
         handler.send_response(exc.code)
         for k, v in exc.headers.items():
             if k.lower() not in hop_by_hop:
@@ -280,10 +315,12 @@ def stream_upstream(
         # without threading a return value through every streaming call site.
         handler._distil_ratelimit = capture_ratelimit(resp.headers)  # type: ignore[attr-defined]
         length = resp.headers.get("Content-Length")
-        chunked = length is None
+        # A transform may change the byte count, so an upstream length can't be relayed.
+        chunked = length is None or chunk_transform is not None
         handler.send_response(resp.status)
         for k, v in resp.headers.items():
-            if k.lower() not in hop_by_hop:
+            # Framing is decided here, never copied: a caller's hop set may omit it.
+            if k.lower() not in hop_by_hop and k.lower() not in _FRAMING:
                 handler.send_header(k, v)
         for k, v in (extras or {}).items():
             handler.send_header(k, v)
@@ -304,6 +341,9 @@ def stream_upstream(
                 chunk = resp.read1(_CHUNK)
                 if not chunk:
                     break
+                # Accounting always uses the original (unmodified) upstream bytes —
+                # usage figures, savings, and shadow decisions must not be based on
+                # the client-bound rewrite.
                 if want_body:
                     buf += chunk
                 if usage_sink is not None:
@@ -312,11 +352,24 @@ def stream_upstream(
                     tail += chunk
                     if len(tail) > _USAGE_SCAN_CAP:
                         del tail[: len(tail) - _USAGE_SCAN_CAP]
-                if chunked:
-                    handler.wfile.write(f"{len(chunk):X}\r\n".encode() + chunk + b"\r\n")
-                else:
-                    handler.wfile.write(chunk)
-                handler.wfile.flush()
+                # Client-bound: transform only what goes to the client.
+                out = chunk_transform(chunk) if chunk_transform is not None else chunk
+                if out:
+                    if chunked:
+                        handler.wfile.write(f"{len(out):X}\r\n".encode() + out + b"\r\n")
+                    else:
+                        handler.wfile.write(out)
+                    handler.wfile.flush()
+            # Flush any bytes the transform buffered (e.g. StreamGuard holding a
+            # partial SSE event across chunk boundaries).
+            if chunk_transform is not None and hasattr(chunk_transform, "flush"):
+                out = chunk_transform.flush()  # type: ignore[call-arg]
+                if out:
+                    if chunked:
+                        handler.wfile.write(f"{len(out):X}\r\n".encode() + out + b"\r\n")
+                    else:
+                        handler.wfile.write(out)
+                    handler.wfile.flush()
             if chunked:
                 handler.wfile.write(b"0\r\n\r\n")
                 handler.wfile.flush()

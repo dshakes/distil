@@ -68,12 +68,15 @@ LONG_TOOL_OUTPUT = "\n".join(
         "total disk usage: 48 GB across 12 partitions",
         "filesystem /dev/sda1: 32 GB used of 100 GB available",
         "filesystem /dev/sdb1: 16 GB used of 200 GB available",
+        # Enough droppable body that digesting is a real saving, not a rounding one
+        # (a digest must save >= 5% of the tokens or the block is declined).
+        *["fsck pass completed cleanly on the scanned block group"] * 12,
         "warning: /tmp is 89% full — consider cleaning up old build artefacts",
         "warning: inode count on /var/log approaching limit (91% used)",
         "no errors detected in kernel ring buffer",
         "last boot: 2026-06-20T03:14:22Z (uptime 18h 42m)",
     ]
-)  # 8 lines — above the 6-line digest threshold
+)  # 20 lines — above the 6-line digest threshold
 
 # Two trailing pad items push a function_call_output out of the recency-exempt
 # window (RECENCY_KEEP_TURNS = 2) so it is eligible for Tier-1 digestion.

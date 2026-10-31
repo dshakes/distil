@@ -48,6 +48,12 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "Set to 1 to opt out of the drift guard that holds compression after evidence of drift.",
     ),
     (
+        "DISTIL_CONTEXT_GUARD",
+        "user",
+        "1",
+        "Set to 0 to disable the context guard that nudges reported usage near the context-window limit.",
+    ),
+    (
         "DISTIL_NO_ENCRYPT_AT_REST",
         "user",
         "unset",
@@ -85,6 +91,12 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "user",
         "0",
         "1 also drops prior turns' thinking blocks at a cold point (ADR 0028). Off by default: lossy, not yet certified.",
+    ),
+    (
+        "DISTIL_FIRST_SIGHT",
+        "user",
+        "1",
+        "0 turns off first-sight digests on preserved-thinking sessions with thinking on (ADR 0028 addendum 3): the newest tool result then stays verbatim.",
     ),
     (
         "DISTIL_REFETCH_VERBATIM",
@@ -204,6 +216,13 @@ VARS: tuple[tuple[str, str, str, str], ...] = (
         "internal",
         "-",
         "Session id; set by `distil wrap` for the agent it launches.",
+    ),
+    (
+        "DISTIL_PROJECT",
+        "internal",
+        "-",
+        "Working-directory name of the `distil wrap` run; labels ledger rows for the "
+        "dashboard's per-project breakdown.",
     ),
     (
         "DISTIL_SURFACE",

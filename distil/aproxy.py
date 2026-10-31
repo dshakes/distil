@@ -35,6 +35,7 @@ from .httpguard import (
     is_compressible_path,
     is_responses_path,
     safe_forward_path,
+    sigv4_refusal,
 )
 from .pricing import DEFAULT_MODEL
 from .tokenizer import DEFAULT as _tokenizer
@@ -285,6 +286,8 @@ def make_app(
         _replay_key: str | None = None
         _replay_orig: list[Any] | None = None
         _thinking = False  # preserved-thinking lineage (ADR 0028): freeze + thinkguard
+        _url_model = False  # `model` copied in from a Bedrock/Vertex URL, dropped again
+
         try:
             body: dict[str, Any] = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
@@ -340,8 +343,11 @@ def make_app(
                     _compress_fn = compress_chat_completions
                 else:
                     from . import thinkguard as _tg
+                    from .serve_core import with_url_model
 
                     _compress_fn = compress_messages
+                    # Bedrock/Vertex name the model in the URL; the thinking guard keys on it.
+                    body, _url_model = with_url_model(body, request.path)
                     _thinking = _tg.lineage(body)
                 _client_body = body
                 try:
@@ -363,7 +369,12 @@ def make_app(
                 ):
                     from .output import shape_request
 
-                    _shape = "anthropic" if request.path == "/v1/messages" else "openai"
+                    # Bedrock/Vertex Messages bodies name anthropic_version, as in serve_core.
+                    _shape = (
+                        "anthropic"
+                        if request.path == "/v1/messages" or "anthropic_version" in body
+                        else "openai"
+                    )
                     body = shape_request(body, level=shape_output, allow=True, shape=_shape)
                     extras["x-distil-output-shaping"] = shape_output
                 if savings is not None:
@@ -427,6 +438,10 @@ def make_app(
                     scope=_prep.credential_scope(dict(fwd_headers)),
                     extras=extras,
                 )
+            if _url_model:
+                from .serve_core import without_model
+
+                body = without_model(body)
             body_bytes = json.dumps(body).encode()
 
         url = _upstream + request.path
@@ -472,6 +487,10 @@ def make_app(
     # -----------------------------------------------------------------------
 
     async def _route_any(request: web.Request) -> web.Response:
+        if request.method == "POST":
+            refusal = sigv4_refusal(request.path, request.headers.get("Authorization"))
+            if refusal:
+                return web.json_response({"error": refusal}, status=400)
         # Single dispatcher: neither Gemini's path (model name in the URL) nor Azure
         # OpenAI's (deployment name in the URL) can be a fixed aiohttp route, so
         # matching happens here for every shape rather than in a route table that

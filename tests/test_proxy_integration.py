@@ -121,6 +121,31 @@ def test_shadow_rows_carry_the_active_levers(proxy_factory, shape):
     assert rows and all(r["levers"] == {"compression": "digest", "shape": shape} for r in rows)
 
 
+def test_first_sight_shadow_rows_are_their_own_mode(proxy_factory):
+    """A preserved-thinking request with thinking on is served first-sight (ADR 0028
+    addendum 3); its shadow rows are booked as their own mode, so the per-mode
+    certification hold judges first sight on its own evidence."""
+    import os
+    from pathlib import Path
+
+    from distil import prefixreplay, thinkguard
+
+    prefixreplay.reset()
+    thinkguard.reset()
+    ledger = Path(os.environ["DISTIL_HOME"]) / "shadow.jsonl"
+    port = proxy_factory(shadow_rate=1.0, expand=True)
+    _post(port, {**_digestible(), "model": "claude-opus-5-5", "thinking": {"type": "adaptive"}})
+    deadline = time.time() + 5
+    while not ledger.exists() and time.time() < deadline:
+        time.sleep(0.05)
+    rows = [json.loads(ln) for ln in ledger.read_text().splitlines()]
+    assert rows and all(r["mode"] == "digest-first-sight" for r in rows)
+    assert all(r["levers"]["compression"] == "digest-first-sight" for r in rows)
+    assert all(r["bytes_saved"] > 0 for r in rows)
+    prefixreplay.reset()
+    thinkguard.reset()
+
+
 def test_expand_gate_round_trip(proxy_factory):
     # expand on + a handle stub in the conversation -> _expand_should_intercept True ->
     # tool injected + response buffered + run_expand_loop (echo has no expand call -> returns)

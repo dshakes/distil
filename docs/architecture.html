@@ -97,86 +97,98 @@
     <p class="lead">Distil is a cost-optimized cache hierarchy with a statistical quality contract. Six components, one invariant: the agent makes the same decisions on compressed context as on the original — provably, not heuristically.</p>
 
     <figure class="archfig" aria-label="Interactive Distil architecture diagram — select a block to open its concept">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="group" aria-label="Distil architecture: the agent's request passes the drift guard, the cold-point planner, salience and the Tier-0/Tier-1 compressors, then prefix replay, to the upstream LLM; originals stay in a local RestoreStore, every request appends to a sealed, Merkle-checkpointed receipt chain; below, the decision-equivalence quality contract">
-      <defs>
-        <linearGradient id="iabg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
-        <linearGradient id="iag" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
-        <linearGradient id="iacard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
-        <linearGradient id="iahero" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#141a2e"/><stop offset="1" stop-color="#0c0f1d"/></linearGradient>
-        <pattern id="iadots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.02"/></pattern>
-        <marker id="iaar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#7d8cff"/></marker>
-        <marker id="iaarb" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5ad19a"/></marker>
-      </defs>
-      <rect width="1200" height="600" fill="url(#iabg)"/><rect width="1200" height="600" fill="url(#iadots)"/>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 712" font-family="Inter,ui-sans-serif,Segoe UI,Roboto,sans-serif" role="group" aria-label="Distil architecture: the agent's request passes the drift guard, the cold point (which on preserved-thinking models also drops the thinking after an eviction), salience and the Tier-0/Tier-1 compressors, then prefix replay and the thinkguard check, to Anthropic, OpenAI, Gemini, Bedrock InvokeModel or Vertex; the context guard acts on the response; originals stay in a local RestoreStore, every request appends to a sealed, Merkle-checkpointed receipt chain; below, the decision-equivalence quality contract">
+        <defs>
+          <linearGradient id="iabg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0c13"/><stop offset="1" stop-color="#06070b"/></linearGradient>
+          <linearGradient id="iag" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b7bff"/><stop offset="1" stop-color="#5ad1c9"/></linearGradient>
+          <linearGradient id="iacard" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12151f"/><stop offset="1" stop-color="#0b0d15"/></linearGradient>
+          <linearGradient id="iahero" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#141a2e"/><stop offset="1" stop-color="#0c0f1d"/></linearGradient>
+          <pattern id="iadots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#ffffff" opacity="0.02"/></pattern>
+          <marker id="iaar" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#8b7bff"/></marker>
+          <marker id="iaart" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5ad1c9"/></marker>
+          <marker id="iaarb" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5ad19a"/></marker>
+        </defs>
+        <rect width="1200" height="712" fill="url(#iabg)"/><rect width="1200" height="712" fill="url(#iadots)"/>
 
-      <text x="48" y="52" font-size="26" font-weight="800" letter-spacing="-0.4" fill="#f2f3f7">How Distil works <tspan fill="#9aa0b2" font-weight="500" font-size="16">— a cache-aware compression pipeline with a quality contract</tspan></text>
+        <text x="24" y="52" font-size="26" font-weight="800" letter-spacing="-0.4" fill="#f2f3f7">How Distil works <tspan fill="#9aa1b3" font-weight="500" font-size="16">— a cache-aware compression pipeline with a quality contract</tspan></text>
 
-      <g font-size="12" letter-spacing="2" font-weight="700" text-anchor="middle"><text x="140" y="94" fill="#7b8298">AGENT</text><text x="600" y="94" fill="#7b8298">DISTIL PROXY · localhost</text><text x="1059" y="94" fill="#7b8298">PROVIDER</text></g>
+        <g font-size="12" letter-spacing="2" font-weight="700" text-anchor="middle"><text x="104" y="94" fill="#9aa1b3">AGENT</text><text x="602" y="94" fill="#9aa1b3">DISTIL PROXY · localhost</text><text x="1096" y="94" fill="#9aa1b3">PROVIDER</text></g>
 
-      <line x1="232" y1="164" x2="316" y2="164" stroke="#7d8cff" stroke-width="2.8" class="flow" marker-end="url(#iaar)"/>
-      <line x1="884" y1="164" x2="966" y2="164" stroke="#7d8cff" stroke-width="2.8" class="flow" marker-end="url(#iaar)"/>
+        <line class="flow" x1="184" y1="164" x2="206" y2="164" stroke="#8b7bff" stroke-width="3" stroke-dasharray="5 9" marker-end="url(#iaar)"/>
+        <line class="flow" x1="996" y1="164" x2="1014" y2="164" stroke="#5ad1c9" stroke-width="3" stroke-dasharray="5 9" marker-end="url(#iaart)"/>
 
-      <g transform="translate(48,122)"><rect width="184" height="84" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
-        <text x="18" y="31" font-size="14" font-weight="700" fill="#eef0f5">Claude Code · Codex</text>
-        <text x="18" y="51" font-size="14" font-weight="700" fill="#eef0f5">Gemini · any SDK</text>
-        <text x="18" y="71" font-size="11" fill="#9aa0b2">re-sends full context every turn</text>
-      </g>
+        <g transform="translate(24,122)"><rect width="160" height="84" rx="14" fill="url(#iacard)" stroke="#8b7bff" stroke-width="1.6"/>
+          <text x="14" y="28" font-size="13" font-weight="700" fill="#f2f3f7">Claude Code · Codex</text>
+          <text x="14" y="47" font-size="13" font-weight="700" fill="#f2f3f7">Gemini CLI · any SDK</text>
+          <text x="14" y="68" font-size="11" fill="#9aa1b3">re-sends full context</text>
+        </g>
 
-      <rect x="320" y="108" width="560" height="296" rx="20" fill="url(#iahero)" stroke="url(#iag)" stroke-width="1.8"/>
-      <text x="600" y="136" text-anchor="middle" font-size="16" font-weight="800" fill="url(#iag)">guard → compress → replay → forward</text>
+        <rect x="208" y="108" width="788" height="344" rx="20" fill="url(#iahero)" stroke="url(#iag)" stroke-width="2"/>
+        <text x="602" y="134" text-anchor="middle" font-size="16" font-weight="800" fill="url(#iag)">guard → compress → replay → verify → forward</text>
 
-      <g font-size="12" text-anchor="middle">
-        <a href="#request-path" aria-label="Drift guard — serves lossless-only while a proven budget breach is held"><title>Drift guard — serves lossless-only while a proven budget breach is held</title><g><rect x="340" y="150" width="98" height="48" rx="10" fill="#1a1420" stroke="#5a3a4a"/><text x="389" y="172" fill="#dbe0ee" font-weight="700">drift guard</text><text x="389" y="188" fill="#9aa0b2" font-size="10">hold on breach</text></g></a>
-        <a href="cache.html#cold-point" aria-label="Cold point — evicts older tool output only when the provider's cache has certainly expired"><title>Cold point — evicts older tool output only when the provider's cache has certainly expired</title><g><rect x="445" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="494" y="172" fill="#dbe0ee" font-weight="700">cold point</text><text x="494" y="188" fill="#9aa0b2" font-size="10">cache expired only</text></g></a>
-        <a href="techniques.html#salience-protection" aria-label="Salience protection — model-free needle-keeping"><title>Salience protection — model-free needle-keeping</title><g><rect x="550" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="599" y="172" fill="#dbe0ee" font-weight="700">salience</text><text x="599" y="188" fill="#9aa0b2" font-size="10">keeps the needle</text></g></a>
-        <a href="techniques.html#tiers" aria-label="Tier-0 lossless transforms and the Tier-1 reversible digest"><title>Tier-0 lossless transforms and the Tier-1 reversible digest</title><g><rect x="655" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a3650"/><text x="704" y="172" fill="#dbe0ee" font-weight="700">Tier-0 · Tier-1</text><text x="704" y="188" fill="#9aa0b2" font-size="10">lossless · digest</text></g></a>
-        <a href="#cache-aware" aria-label="Prefix replay — forwards last turn's bytes for a canonically-equal prefix"><title>Prefix replay — forwards last turn's bytes for a canonically-equal prefix</title><g><rect x="760" y="150" width="98" height="48" rx="10" fill="#111726" stroke="#2a5740"/><text x="809" y="172" fill="#dbe0ee" font-weight="700">prefix replay</text><text x="809" y="188" fill="#9aa0b2" font-size="10">last turn's bytes</text></g></a>
-      </g>
-      <g stroke="#3a486a" stroke-width="1.4" fill="none"><path d="M438,174 L445,174"/><path d="M543,174 L550,174"/><path d="M648,174 L655,174"/><path d="M753,174 L760,174"/></g>
+        <!-- The request path, left to right, in the order the proxy runs it. -->
+        <g font-size="13" text-anchor="middle">
+          <a href="#request-path" aria-label="Drift guard — serves lossless-only while a proven budget breach is held"><title>Drift guard — serves lossless-only while a proven budget breach is held</title><g><rect x="221" y="148" width="122" height="100" rx="10" fill="#2a1519" stroke="#ff8a6b" stroke-width="1.8"/><text x="282" y="170" fill="#f2f3f7" font-weight="700">drift guard</text><g font-size="11" fill="#ffb09a"><text x="282" y="190">hold on breach</text></g></g></a>
+          <a href="cache.html#cold-point" aria-label="Cold point — evicts older tool output only when the provider's cache has certainly expired, and drops the signed thinking after it"><title>Cold point — evicts older tool output only when the provider's cache has certainly expired, and drops the signed thinking after it</title><g><rect x="349" y="148" width="122" height="100" rx="10" fill="#1a1636" stroke="#8b7bff" stroke-width="1.8"/><text x="410" y="170" fill="#f2f3f7" font-weight="700">cold point</text><g font-size="11" fill="#c6bdff"><text x="410" y="190">expired cache only</text><text x="410" y="205">drops thinking</text><text x="410" y="220">after it</text></g></g></a>
+          <a href="techniques.html#salience-protection" aria-label="Salience protection — model-free needle-keeping"><title>Salience protection — model-free needle-keeping</title><g><rect x="477" y="148" width="122" height="100" rx="10" fill="#0f2a2d" stroke="#5ad1c9" stroke-width="1.8"/><text x="538" y="170" fill="#f2f3f7" font-weight="700">salience</text><g font-size="11" fill="#9eeae4"><text x="538" y="190">keeps the needle</text></g></g></a>
+          <a href="techniques.html#tiers" aria-label="Tier-0 lossless transforms and the Tier-1 reversible digest, which keeps identifier lines in view"><title>Tier-0 lossless transforms and the Tier-1 reversible digest, which keeps identifier lines in view</title><g><rect x="605" y="148" width="122" height="100" rx="10" fill="#17203a" stroke="url(#iag)" stroke-width="2"/><text x="666" y="170" fill="#f2f3f7" font-weight="700">Tier-0 · Tier-1</text><g font-size="11" fill="#c9d4f2"><text x="666" y="190">lossless · digest</text><text x="666" y="205">keeps identifier</text><text x="666" y="220">lines; first sight</text><text x="666" y="235">on thinking lineages</text></g></g></a>
+          <a href="#cache-aware" aria-label="Prefix replay — forwards last turn's rendering for an unchanged prefix, frozen on thinking lineages"><title>Prefix replay — forwards last turn's rendering for an unchanged prefix, frozen on thinking lineages</title><g><rect x="733" y="148" width="122" height="100" rx="10" fill="#10281d" stroke="#5ad19a" stroke-width="1.8"/><text x="794" y="170" fill="#f2f3f7" font-weight="700">prefix replay</text><g font-size="11" fill="#a0ecc4"><text x="794" y="190">freezes last turn's</text><text x="794" y="205">rendering</text></g></g></a>
+          <a href="cache.html#thinking-prefix" aria-label="Thinkguard — checks each signed thinking block against its prefix and drops rather than letting a 400 through"><title>Thinkguard — checks each signed thinking block against its prefix and drops rather than letting a 400 through</title><g><rect x="861" y="148" width="122" height="100" rx="10" fill="#0f2a25" stroke="#5ad19a" stroke-width="1.8"/><text x="922" y="170" fill="#f2f3f7" font-weight="700">thinkguard</text><g font-size="11" fill="#a0ecc4"><text x="922" y="190">verifies signed</text><text x="922" y="205">thinking · drops,</text><text x="922" y="220">never 400s</text></g></g></a>
+        </g>
+        <g stroke="#8b7bff" stroke-width="2" fill="none"><path d="M343,198 L349,198"/><path d="M471,198 L477,198"/><path d="M599,198 L605,198"/><path d="M727,198 L733,198"/><path d="M855,198 L861,198"/></g>
 
-      <a href="techniques.html#cache-aware" aria-label="Cache-aware placement — pin the stable prefix at the 0.1× cache-read rate"><title>Cache-aware placement — pin the stable prefix at the 0.1× cache-read rate</title><rect x="340" y="210" width="518" height="34" rx="9" fill="#0e1320" stroke="#2a5740"/>
-      <circle cx="361" cy="227" r="4" fill="#5ad19a"/>
-      <text x="377" y="232" font-size="12.5" fill="#dbe0ee">cache-aware placement — stable prefix billed at the <tspan fill="#6fe0aa" font-weight="700">0.1× cache-read</tspan> rate</text></a>
+        <a href="techniques.html#cache-aware" aria-label="Cache-aware placement — pin the stable prefix at the 0.1× cache-read rate"><title>Cache-aware placement — pin the stable prefix at the 0.1× cache-read rate</title><rect x="226" y="262" width="752" height="34" rx="9" fill="#0e1320" stroke="#5ad19a" stroke-width="1.6"/>
+        <circle class="pulse" cx="247" cy="279" r="4.5" fill="#5ad19a"/>
+        <text x="263" y="284" font-size="13" fill="#f2f3f7">cache-aware placement — stable prefix billed at the <tspan fill="#6fe0aa" font-weight="700">0.1× cache-read</tspan> rate</text></a>
 
-      <a href="techniques.html#tiers" aria-label="RestoreStore — originals kept locally, never sent to the model"><title>RestoreStore — originals kept locally, never sent to the model</title><g transform="translate(340,256)"><rect width="248" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">RestoreStore</text><text x="15" y="43" font-size="11" fill="#9aa0b2">originals kept locally · 0 tokens on wire</text><text x="15" y="55" font-size="10" fill="#727a92">never sent to the model</text></g></a>
-      <a href="techniques.html#tiers" aria-label="distil_expand — the model recovers any digested detail on demand"><title>distil_expand — the model recovers any digested detail on demand</title><g transform="translate(602,256)"><rect width="256" height="60" rx="10" fill="#0e1320" stroke="#343f63"/><text x="15" y="25" font-size="13" font-weight="700" fill="#5ad1c9">distil_expand</text><text x="15" y="43" font-size="11" fill="#9aa0b2">model recovers any digested detail</text><text x="15" y="55" font-size="10" fill="#727a92">transparent re-query · PAYG</text></g></a>
+        <a href="techniques.html#tiers" aria-label="RestoreStore — originals kept locally, never sent to the model"><title>RestoreStore — originals kept locally, never sent to the model</title><g transform="translate(226,306)"><rect width="372" height="60" rx="10" fill="#0e1320" stroke="#8b7bff" stroke-width="1.6"/><text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">RestoreStore</text><text x="15" y="43" font-size="12" fill="#9aa1b3">originals kept locally · 0 tokens on wire</text><text x="15" y="56" font-size="11" fill="#7d8598">never sent to the model</text></g></a>
+        <a href="techniques.html#tiers" aria-label="distil_expand — the model recovers any digested detail on demand"><title>distil_expand — the model recovers any digested detail on demand</title><g transform="translate(606,306)"><rect width="372" height="60" rx="10" fill="#0e1320" stroke="#5ad1c9" stroke-width="1.6"/><text x="15" y="25" font-size="13" font-weight="700" fill="#5ad1c9">distil_expand</text><text x="15" y="43" font-size="12" fill="#9aa1b3">model recovers any digested detail</text><text x="15" y="56" font-size="11" fill="#7d8598">transparent re-query · PAYG</text></g></a>
 
-      <a href="cli.html#receipts" aria-label="Receipt chain — a hash-linked receipt per request, sealed into segments with Merkle-root checkpoints"><title>Receipt chain — a hash-linked receipt per request, sealed into segments with Merkle-root checkpoints</title><g transform="translate(340,328)"><rect width="518" height="60" rx="10" fill="#0e1320" stroke="#3a3560"/>
-        <text x="15" y="24" font-size="13" font-weight="700" fill="#bcacff">receipt chain</text>
-        <text x="118" y="24" font-size="11" fill="#9aa0b2">one hash-linked, content-free receipt per request</text>
-        <rect x="15" y="34" width="84" height="18" rx="5" fill="#141a2e" stroke="#2c344a"/><text x="57" y="47" text-anchor="middle" font-size="10.5" fill="#dbe0ee">segment 0</text>
-        <rect x="107" y="34" width="84" height="18" rx="5" fill="#141a2e" stroke="#2c344a"/><text x="149" y="47" text-anchor="middle" font-size="10.5" fill="#dbe0ee">segment 1</text>
-        <rect x="199" y="34" width="84" height="18" rx="5" fill="#141a2e" stroke="#2a3650" stroke-dasharray="3 3"/><text x="241" y="47" text-anchor="middle" font-size="10.5" fill="#9aa0b2">active</text>
-        <text x="298" y="47" font-size="10.5" fill="#9aa0b2">sealed · Merkle-root checkpoint each</text></g></a>
+        <a href="cli.html#receipts" aria-label="Receipt chain — a hash-linked receipt per request, sealed into segments with Merkle-root checkpoints"><title>Receipt chain — a hash-linked receipt per request, sealed into segments with Merkle-root checkpoints</title><g transform="translate(226,378)"><rect width="752" height="62" rx="10" fill="#0e1320" stroke="#8b7bff" stroke-width="1.6"/>
+          <text x="15" y="25" font-size="13" font-weight="700" fill="#bcacff">receipt chain</text>
+          <text x="118" y="25" font-size="12" fill="#9aa1b3">one hash-linked, content-free receipt per request</text>
+          <g font-size="11.5" fill="#f2f3f7">
+            <rect x="15" y="36" width="90" height="19" rx="5" fill="#141a2e" stroke="#8b7bff"/><text x="60" y="50" text-anchor="middle">segment 0</text>
+            <rect x="113" y="36" width="90" height="19" rx="5" fill="#141a2e" stroke="#8b7bff"/><text x="158" y="50" text-anchor="middle">segment 1</text>
+            <rect x="211" y="36" width="90" height="19" rx="5" fill="#141a2e" stroke="#5ad1c9" stroke-dasharray="3 3"/><text x="256" y="50" text-anchor="middle" fill="#9eeae4">active</text>
+          </g>
+          <text x="316" y="50" font-size="11.5" fill="#9aa1b3">sealed · Merkle-root checkpoint each</text>
+        </g></a>
 
-      <g transform="translate(966,122)"><rect width="186" height="84" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
-        <text x="18" y="31" font-size="14" font-weight="700" fill="#eef0f5">Anthropic · OpenAI</text>
-        <text x="18" y="51" font-size="14" font-weight="700" fill="#eef0f5">Google Gemini</text>
-        <text x="18" y="71" font-size="11" fill="#9aa0b2">prompt cache + LLM</text>
-      </g>
+        <g transform="translate(1016,122)"><rect width="160" height="112" rx="14" fill="url(#iacard)" stroke="#5ad1c9" stroke-width="1.6"/>
+          <text x="14" y="28" font-size="13" font-weight="700" fill="#f2f3f7">Anthropic · OpenAI</text>
+          <text x="14" y="47" font-size="13" font-weight="700" fill="#f2f3f7">Gemini · Vertex</text>
+          <text x="14" y="66" font-size="13" font-weight="700" fill="#f2f3f7">Bedrock InvokeModel</text>
+          <text x="14" y="92" font-size="11" fill="#9aa1b3">prompt cache + LLM</text>
+        </g>
 
-      <!-- recovery loop: ONE continuous dotted line, provider → expand → agent.
-           The label sits on a pill that rides the line, so the line stays connected. -->
-      <path d="M1059,206 C1059,372 916,432 600,432 C284,432 150,362 140,210" fill="none" stroke="#5ad19a" stroke-width="2.2" class="rflow" marker-end="url(#iaarb)"/>
-      <rect x="352" y="420" width="496" height="24" rx="12" fill="#0a0b12" stroke="#21402f"/>
-      <text x="600" y="436" text-anchor="middle" font-size="12.5" fill="#7fe6ad">response → transparent expand loop → agent (it just gets the right answer)</text>
+        <!-- response path: context guard acts on what the client sees -->
+        <a href="cache.html#context-guard" aria-label="Context guard — raises the usage the client sees near the window so it compacts first"><title>Context guard — raises the usage the client sees near the window so it compacts first</title><g transform="translate(260,466)"><rect width="680" height="44" rx="12" fill="#0f2a2d" stroke="#5ad1c9" stroke-width="1.8"/>
+          <text x="18" y="27" font-size="14" font-weight="800" fill="#5ad1c9">← context guard</text>
+          <text x="150" y="27" font-size="12.5" fill="#f2f3f7">nudges reported usage near the window so the client compacts first</text>
+        </g></a>
 
-      <text x="48" y="490" font-size="12" letter-spacing="2" font-weight="700" fill="#7b8298">THE QUALITY CONTRACT — one risk budget, certified offline, watched live</text>
-      <a href="concepts.html#contract" aria-label="Decision-Equivalence Certificate — the conformal guarantee"><title>Decision-Equivalence Certificate — the conformal guarantee</title><g transform="translate(48,504)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
-        <circle cx="26" cy="31" r="6" fill="#8b7bff"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Decision-Equivalence Certificate</text>
-        <text x="20" y="52" font-size="11.5" fill="#9aa0b2">conformal risk control (LTT/CRC) · distribution-free</text>
-        <text x="20" y="69" font-size="11.5" fill="#9aa0b2">P(decision-change ≤ α) ≥ 1 − δ</text>
-      </g></a>
-      <a href="benchmark.html#exit-summary" aria-label="Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach"><title>Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach</title><g transform="translate(420,504)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
-        <circle cx="26" cy="31" r="6" fill="#5ad1c9"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Shadow mode → drift alarm</text>
-        <text x="20" y="52" font-size="11.5" fill="#9aa0b2">paired replays feed an anytime-valid e-process</text>
-        <text x="20" y="69" font-size="11.5" fill="#9aa0b2">a proven breach holds the guard at lossless-only</text>
-      </g></a>
-      <a href="techniques.html#keep-model" aria-label="Learned keep-model — the self-improving, never-regressing flywheel"><title>Learned keep-model — the self-improving, never-regressing flywheel</title><g transform="translate(792,504)"><rect width="360" height="80" rx="14" fill="url(#iacard)" stroke="#2c344a"/>
-        <circle cx="26" cy="31" r="6" fill="#5ad19a"/><text x="44" y="29" font-size="14" font-weight="700" fill="#eef0f5">Learned keep-model — flywheel</text>
-        <text x="20" y="52" font-size="11.5" fill="#9aa0b2">every expand is a label; only ever gets</text>
-        <text x="20" y="69" font-size="11.5" fill="#9aa0b2">more conservative — never-regressing</text>
-      </g></a>
+        <!-- recovery loop: ONE continuous dotted line, provider → expand → agent. -->
+        <path class="rflow" d="M1096,236 C1096,540 900,562 600,562 C300,562 104,500 104,210" fill="none" stroke="#5ad19a" stroke-width="2.6" stroke-dasharray="0.1 8" stroke-linecap="round" marker-end="url(#iaarb)"/>
+        <rect x="352" y="550" width="496" height="24" rx="12" fill="#0a0b12" stroke="#5ad19a"/>
+        <text x="600" y="567" text-anchor="middle" font-size="12.5" fill="#7fe6ad">response → transparent expand loop → agent (it just gets the right answer)</text>
+
+        <text x="24" y="600" font-size="12" letter-spacing="2" font-weight="700" fill="#9aa1b3">THE QUALITY CONTRACT — one risk budget, certified offline, watched live</text>
+        <a href="concepts.html#contract" aria-label="Decision-Equivalence Certificate — the conformal guarantee"><title>Decision-Equivalence Certificate — the conformal guarantee</title><g transform="translate(24,614)"><rect width="376" height="80" rx="14" fill="url(#iacard)" stroke="#8b7bff" stroke-width="1.6"/>
+          <circle class="pulse" cx="26" cy="31" r="6" fill="#8b7bff"/><text x="44" y="36" font-size="14" font-weight="700" fill="#f2f3f7">Decision-Equivalence Certificate</text>
+          <text x="20" y="55" font-size="12" fill="#9aa1b3">conformal risk control (LTT/CRC) · distribution-free</text>
+          <text x="20" y="71" font-size="12" fill="#9aa1b3">P(decision-change ≤ α) ≥ 1 − δ</text>
+        </g></a>
+        <a href="benchmark.html#exit-summary" aria-label="Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach"><title>Shadow mode and the drift alarm — live decision-equivalence that holds the proxy at lossless-only on a proven breach</title><g transform="translate(412,614)"><rect width="376" height="80" rx="14" fill="url(#iacard)" stroke="#5ad1c9" stroke-width="1.6"/>
+          <circle class="pulse" cx="26" cy="31" r="6" fill="#5ad1c9"/><text x="44" y="36" font-size="14" font-weight="700" fill="#f2f3f7">Shadow mode → drift alarm</text>
+          <text x="20" y="55" font-size="12" fill="#9aa1b3">paired replays feed an anytime-valid e-process</text>
+          <text x="20" y="71" font-size="12" fill="#9aa1b3">a proven breach holds the guard at lossless-only</text>
+        </g></a>
+        <a href="techniques.html#keep-model" aria-label="Learned keep-model — the self-improving, never-regressing flywheel"><title>Learned keep-model — the self-improving, never-regressing flywheel</title><g transform="translate(800,614)"><rect width="376" height="80" rx="14" fill="url(#iacard)" stroke="#5ad19a" stroke-width="1.6"/>
+          <circle class="pulse" cx="26" cy="31" r="6" fill="#5ad19a"/><text x="44" y="36" font-size="14" font-weight="700" fill="#f2f3f7">Learned keep-model — flywheel</text>
+          <text x="20" y="55" font-size="12" fill="#9aa1b3">every expand is a label; only ever gets</text>
+          <text x="20" y="71" font-size="12" fill="#9aa1b3">more conservative — never-regressing</text>
+        </g></a>
     </svg>
     </figure>
     <p class="archfig-hint"><b>Interactive</b> — select any block (click, or Tab then Enter) to open the concept or technique behind it.</p>
@@ -189,12 +201,14 @@
     <p>What one Anthropic Messages request passes through on <code>distil proxy</code> or <code>distil wrap</code>, left to right in the diagram. The OpenAI and Gemini adapters run the same compression and replay; the drift guard and the cold point are noted where they differ.</p>
     <ol>
       <li><strong>Drift guard</strong> (<code>distil/drift.py</code>). If shadow mode's paired verdicts have pushed the anytime-valid drift alarm over the one risk budget (<code>distil.conformal.BUDGET_ALPHA</code>), the request is served lossless-only: Tier-0, no digest, no output shaping. The response carries <code>x-distil-mode: lossless-only</code> and <code>x-distil-drift-guard: held</code>. <code>distil_expand</code> stays injected, so stubs already in the history remain recoverable. The hold is one per machine, survives restarts, is written to the receipt chain, and is released with <code>distil reset --drift-guard</code>. Checking it costs one attribute read per request. A guard that fails serves the request as configured. The multi-tenant gateway runs no shadow and is exempt by design (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0016-drift-guard-scope.md">ADR 0016</a>). New since 1.53.0rc1 and still to pass an rc soak.</li>
-      <li><strong>Cold-point planner</strong> (<code>distil/coldpoint.py</code>). When a turn arrives after the provider's cache entry has <em>certainly</em> expired, the whole prefix is re-billed anyway, so older tool output is replaced by <code>distil_expand</code>-recoverable stubs there and those stubs are forwarded on every later turn. Anthropic only, only where the recoverable digest runs; <code>--no-cold-point</code> opts out. <strong>Not yet measured live</strong>: the rc soak and a live A/B are its gate. Contract: <a href="cache.html#cold-point">clause (h)</a>; decision record: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>.</li>
-      <li><strong>Compression.</strong> Salience pins the load-bearing lines, Tier-0 runs lossless transforms, Tier-1 digests large tool output behind a content handle, and the re-read delta references lines the conversation already holds. Exact-quote provenance exempts anything an <code>Edit</code> may quote back. A tool result that re-fetches lines the agent was only ever shown as a digest is forwarded verbatim; the earlier digest is left as cached (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>, <code>DISTIL_REFETCH_VERBATIM=0</code> turns it off). A dropped run no longer than its <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code> marker is shown inline rather than pointed at; that gain is small, and zero on the bundled corpus.</li>
-      <li><strong>Prefix replay</strong> (<code>distil/prefixreplay.py</code>). For the longest canonically-equal leading prefix, the bytes forwarded last turn are forwarded again. Each request records why replay stopped (<code>replay_stop</code>, and <code>x-distil-replay-stop</code> on the response), so an in-window cache write can be attributed to the client or to distil. See <a href="#cache-aware">below</a>.</li>
-      <li><strong>Upstream.</strong> Streams are relayed chunk by chunk. Provider-signed, opaque content is forwarded untouched: Anthropic <code>thinking</code> and server-side <code>compaction</code> blocks, OpenAI <code>reasoning</code> <code>encrypted_content</code> and <code>compaction</code> items (<a href="cache.html#opaque">clause (g)</a>). So is the request <code>tools</code> array (<a href="cache.html#tools">why</a>).</li>
-      <li><strong>After the response.</strong> One content-free receipt is appended to the hash chain; when the active file reaches the segment size it is sealed with a Merkle-root checkpoint (<a href="cli.html#receipts"><code>distil receipts</code></a>). A shadow-sampled request is replayed off the request path, and its paired verdict is folded into the drift e-process the guard reads.</li>
+      <li><strong>Cold-point planner</strong> (<code>distil/coldpoint.py</code>). When a turn arrives after the provider's cache entry has <em>certainly</em> expired, the whole prefix is re-billed anyway, so older tool output is replaced by <code>distil_expand</code>-recoverable stubs there and those stubs are forwarded on every later turn. Anthropic only, only where the recoverable digest runs; <code>--no-cold-point</code> opts out. The TTL it waits out is the larger of the documented one and a learned lower bound, so it never calls a cache cold early (<a href="cache.html#cold">learned TTL</a>). On preserved-thinking models an eviction also drops every thinking block after it, because their signatures bind the prefix it just changed (<a href="cache.html#thinking-prefix">why</a>). <strong>Not yet measured live</strong>: the rc soak and a live A/B are its gate. Contract: <a href="cache.html#cold-point">clause (h)</a>; decision record: <a href="https://github.com/dshakes/distil/blob/main/docs/adr/0014-cold-point-recompression.md">ADR 0014</a>.</li>
+      <li><strong>Compression.</strong> Salience pins the load-bearing lines, Tier-0 runs lossless transforms, Tier-1 digests large tool output behind a content handle, and the re-read delta references lines the conversation already holds. Exact-quote provenance exempts anything an <code>Edit</code> may quote back. A tool result that re-fetches lines the agent was only ever shown as a digest is forwarded verbatim; the earlier digest is left as cached (<a href="https://github.com/dshakes/distil/blob/main/docs/adr/0025-refetch-verbatim.md">ADR 0025</a>, <code>DISTIL_REFETCH_VERBATIM=0</code> turns it off). A dropped run no longer than its <code>&lt;&lt; +N lines, handle=… &gt;&gt;</code> marker is shown inline rather than pointed at; that gain is small, and zero on the bundled corpus. The digest keeps the densest identifier lines (paths, URLs, hashes, <code>key=value</code>) within a tenth of the block in view, and is declined unless it saves at least 5% of the block's tokens. On a preserved-thinking lineage with thinking on, every tool result is decided in the request where it first appears (<a href="cache.html#thinking-prefix">first sight</a>) instead of waiting out a recency window.</li>
+      <li><strong>Prefix replay</strong> (<code>distil/prefixreplay.py</code>). For the longest canonically-equal leading prefix, the bytes forwarded last turn are forwarded again. Each request records why replay stopped (<code>replay_stop</code>, and <code>x-distil-replay-stop</code> on the response), so an in-window cache write can be attributed to the client or to distil. On a preserved-thinking lineage it freezes decisions as well as bytes: an unchanged item goes out exactly as last turn. See <a href="#cache-aware">below</a>.</li>
+      <li><strong>Thinkguard</strong> (<code>distil/thinkguard.py</code>). Runs last on the final body, in the proxy, the async proxy and the gateway. Each forwarded thinking block is checked against the prefix hash recorded when it was produced; from the first one whose prefix distil changed, that block and every later one are dropped whole (reported in <code>x-distil-thinking-dropped</code>) instead of letting the provider return a 400. A change the client made is left alone, and the ledger is hashes only. The sequence is drawn below.</li>
+      <li><strong>Upstream.</strong> Anthropic, OpenAI (Chat Completions, Responses, Azure), Gemini, Bedrock InvokeModel and Vertex AI (Anthropic <code>rawPredict</code>, Gemini <code>generateContent</code>); <a href="integrations.html#reach">which routes compress</a>. Streams are relayed chunk by chunk. Provider-signed, opaque content is never altered: server-side <code>compaction</code> blocks, OpenAI <code>reasoning</code> <code>encrypted_content</code> and <code>compaction</code> items are forwarded byte-identical, and an Anthropic <code>thinking</code> block is either forwarded byte-identical or, by thinkguard, dropped whole (<a href="cache.html#opaque">clause (g)</a>). So is the request <code>tools</code> array (<a href="cache.html#tools">why</a>).</li>
+      <li><strong>After the response.</strong> One content-free receipt is appended to the hash chain; when the active file reaches the segment size it is sealed with a Merkle-root checkpoint (<a href="cli.html#receipts"><code>distil receipts</code></a>). A shadow-sampled request is replayed off the request path, and its paired verdict is folded into the drift e-process the guard reads. Near the model's context window the <a href="cache.html#context-guard">context guard</a> raises the input-token count the client sees so the client compacts before a full-size turn fails.</li>
     </ol>
+    <img src="assets/thinking-prefix.svg" alt="Sequence diagram. Without a guard: turn N returns thinking block T1 signed over its prefix; on turn N+1 the proxy rewrites an earlier tool result, the prefix no longer matches, and the API answers 400. With distil: freeze forwards unchanged items exactly as last turn; first sight decides each tool result once; a cold-point eviction drops the thinking after it and thinkguard drops from the first changed block. T1 stays valid or is dropped whole, never altered." class="svg-embed"/>
 
     <hr/>
 

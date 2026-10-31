@@ -32,6 +32,7 @@ import urllib.request
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import unquote
 
 from . import coldpoint as _coldpoint
 from ._log import log
@@ -191,13 +192,38 @@ class Outbound:
 
 
 def _model_from_path(path: str) -> str | None:
-    """Extract the model id from a Gemini-style URL (``.../models/<id>:action``)."""
+    """Extract the model id from the URL: Gemini / Vertex (``.../models/<id>:action``) or
+    Bedrock (``/model/<id>/invoke``, percent-encoded — ``:`` arrives as ``%3A``)."""
+    path = strip_query(path)
+    if path.startswith("/model/"):
+        return unquote(path[len("/model/") :].split("/", 1)[0]) or None
     marker = "/models/"
     idx = path.find(marker)
     if idx < 0:
         return None
     tail = path[idx + len(marker) :]
     return tail.split(":", 1)[0].split("/", 1)[0] or None
+
+
+def _is_hosted_anthropic_path(path: str) -> bool:
+    return path.startswith("/model/") or "/publishers/anthropic/" in path
+
+
+def with_url_model(body: dict[str, Any], path: str) -> tuple[dict[str, Any], bool]:
+    """``(body, injected)``: a Bedrock/Vertex Anthropic body with its URL model copied into
+    ``model``, so every preserved-thinking decision (ADR 0028: thinkguard, cold-point
+    deferral, the freeze) sees the same model the direct API would name. *injected* says
+    the caller must drop ``model`` again before forwarding (Bedrock rejects unknown keys)."""
+    p = strip_query(path)
+    if body.get("model") or not _is_hosted_anthropic_path(p):
+        return body, False
+    m = _model_from_path(p)
+    return ({**body, "model": m}, True) if m else (body, False)
+
+
+def without_model(body: dict[str, Any]) -> dict[str, Any]:
+    """Undo :func:`with_url_model` on the body about to be forwarded."""
+    return {k: v for k, v in body.items() if k != "model"}
 
 
 def _cold_plan(
@@ -229,6 +255,7 @@ def _cold_plan(
             held=held,
             ttl=_coldpoint.openai_request_ttl(body) if openai else None,
             extend=None if extend is None else functools.partial(extend, items),
+            provider="openai" if openai else "anthropic",
         )
     except Exception:  # noqa: BLE001 — never break a request for a saving
         log.debug("cold-point plan failed; compressing as usual", exc_info=True)
@@ -291,6 +318,8 @@ def compress_or_forward(
     cold_key: str | None = None
     cold_plan: Any = None  # ADR 0014 plan, when cold-point runs on this shape
     cold_kw: dict[str, Any] = {}
+    first_kw: dict[str, Any] = {}  # {"first_sight": True} on a first-sight lineage
+    url_model = False  # `model` copied in from a Bedrock/Vertex URL; dropped before return
     _path = strip_query(path)
 
     try:
@@ -317,6 +346,8 @@ def compress_or_forward(
             except Exception:  # noqa: BLE001 — compression must never break a request
                 log.debug("compress_responses_input failed; forwarding uncompressed", exc_info=True)
                 new_input, store = orig_input, None
+            if on_compressed is not None:
+                on_compressed("input", orig_input, new_input, store)
             after_tok = count_responses_tokens(new_input)
             body = {**body, "input": new_input}
             extras = {
@@ -339,7 +370,17 @@ def compress_or_forward(
                 body = shape_request(body, level=shape_output, allow=True, shape="responses")
                 extras["x-distil-output-shaping"] = shape_output
 
-        elif "messages" in body and isinstance(body["messages"], list):
+        elif (
+            "messages" in body
+            and isinstance(body["messages"], list)
+            # Bedrock/Vertex paths are shared with non-Anthropic bodies (Nova's
+            # ``messages`` holds ``{"text"}`` blocks): only the Anthropic body, which
+            # always names its ``anthropic_version``, is ours to rewrite.
+            and (not _is_hosted_anthropic_path(_path) or "anthropic_version" in body)
+        ):
+            # Bedrock/Vertex name the model in the URL; the thinking guarantees key on it.
+            body, url_model = with_url_model(body, _path)
+            client_body = body
             original: list[dict[str, Any]] = body["messages"]
             replay_key, replay_orig = "messages", original
             # Counted BEFORE anything stateful so a quota rejection (admit) leaves the
@@ -368,6 +409,12 @@ def compress_or_forward(
                 if thinking_lineage:
                     # A system edit invalidates every thinking block: no shaping, ever.
                     shape_output = "off"
+                # First sight (ADR 0028 addendum 3): under the freeze a recency-exempt
+                # result stays verbatim forever, so decide it now — digest recoverable via
+                # distil_expand — and let the freeze keep that decision. Needs a lossy
+                # mode, the expand tool, and prefix replay (the freezer).
+                if _tg.first_sight(body) and not verbatim and expand and replay_scope is not None:
+                    first_kw["first_sight"] = True
             # OpenAI Chat Completions needs its own adapter (role:"tool" list content is
             # Tier-1; the Anthropic adapter applies Tier-0 to generic list text items).
             if is_chat:
@@ -434,13 +481,15 @@ def compress_or_forward(
                         # copy, the stub the agent re-ran the command to get past.
                         from .adapters.anthropic import refetch_tool_use_ids
 
-                        keep_ids |= refetch_tool_use_ids(original, keep=keep, **cold_kw)
+                        keep_ids |= refetch_tool_use_ids(original, keep=keep, **cold_kw, **first_kw)
                     pre, dstore, dstats = delta_encode(original, session=sess, keep_ids=keep_ids)
                 except Exception:  # noqa: BLE001 — never break a request
                     log.debug("cache-delta encode failed", exc_info=True)
                     pre, dstore, dstats = original, None, None
             try:
-                compressed, store = compress_fn(pre, verbatim=verbatim, keep=keep, **cold_kw)
+                compressed, store = compress_fn(
+                    pre, verbatim=verbatim, keep=keep, **cold_kw, **first_kw
+                )
             except Exception:  # noqa: BLE001 — compression must never break a request
                 log.debug("compress_messages failed; forwarding uncompressed", exc_info=True)
                 compressed, store = pre, None
@@ -474,6 +523,10 @@ def compress_or_forward(
                 # when this is ~0, a ▼0 is "nothing large to compress this turn".
                 "x-distil-compressible-tokens": str(before_tok if before_tok is not None else 0),
             }
+            if first_kw:
+                # Shadow books this request's rows under their own mode (proxy), so the
+                # per-mode certification hold (ADR 0022) watches first sight separately.
+                extras["x-distil-first-sight"] = "1"
             if dstats is not None:
                 extras["x-distil-cache-refs"] = str(dstats.exact_refs + dstats.delta_refs)
                 extras["x-distil-cache-delta"] = str(dstats.delta_refs)
@@ -498,11 +551,16 @@ def compress_or_forward(
             # Only when the counts are real: a request whose accounting failed goes
             # unbooked rather than entering the ledger with a fabricated zero.
             if before_tok is not None and after_tok is not None:
-                pending = (before_tok, after_tok, body.get("model"))
+                # Bedrock/Vertex carry the model in the URL, not the body.
+                pending = (before_tok, after_tok, body.get("model") or _model_from_path(path))
             if shape_output != "off":
                 from .output import shape_request
 
-                shape = "anthropic" if _path == "/v1/messages" else "openai"
+                shape = (
+                    "anthropic"
+                    if _path == "/v1/messages" or "anthropic_version" in body
+                    else "openai"
+                )
                 body = shape_request(body, level=shape_output, allow=True, shape=shape)
                 extras["x-distil-output-shaping"] = shape_output
 
@@ -518,7 +576,7 @@ def compress_or_forward(
                 log.debug("gemini compression failed; forwarding uncompressed", exc_info=True)
                 store = None
             if on_compressed is not None:
-                on_compressed("contents", None, None, store)
+                on_compressed("contents", replay_orig, body.get("contents"), store)
             after_tok = _gemini_count(body)
             extras = {
                 "x-distil-compressed": "1",
@@ -560,6 +618,12 @@ def compress_or_forward(
             from . import thinkguard as _tg
 
             body = _tg.guard(client_body, body, scope=scope, extras=extras)
+            if cold_key is not None and "x-distil-thinking-dropped" in extras:
+                # A dropped thinking block is distil's own prefix edit: this turn's cache
+                # miss says nothing about the provider's TTL (ttl_estimator).
+                _coldpoint.note_rewrite(cold_key)
+        if url_model:
+            body = without_model(body)
     except BaseException:
         # A planned lineage is in flight until end(); a raise after plan() would leave it
         # in flight forever (never cold again). The caller never sees the key, so close it.
@@ -622,7 +686,8 @@ def run_expand(
         # Chat Completions shares the ``messages`` key with Anthropic but not the
         # tool-call shape: the answer goes back as a role:"tool" message.
         return run_expand_loop_chat(body, resp_json, store, post, on_signal=on_signal)
-    return run_expand_loop(body, resp_json, store, post, on_signal=on_signal)
+    model = with_url_model(body, path)[0].get("model")
+    return run_expand_loop(body, resp_json, store, post, on_signal=on_signal, model=model)
 
 
 def sse_body(

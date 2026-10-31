@@ -379,16 +379,16 @@ distil <span class="c">benchmark</span> --corpus corpus_taubench --runner anthro
         <tr><td><code>none</code></td><td>0.0%</td><td>1.000</td><td>1.000</td><td>0</td><td>yes</td></tr>
         <tr><td><code>tier-0 only</code></td><td>0.0%</td><td>1.000</td><td>1.000</td><td>0</td><td>yes</td></tr>
         <tr><td><code>subscription</code></td><td>0.0%</td><td>1.000</td><td>1.000</td><td>0</td><td>yes</td></tr>
-        <tr><td><code>lossless</code></td><td><b>47.0%</b></td><td>1.000</td><td>0.769</td><td>0</td><td>yes</td></tr>
+        <tr><td><code>lossless</code></td><td><b>45.1%</b></td><td>1.000</td><td>0.825</td><td>0</td><td>yes</td></tr>
         <tr><td><code>aggressive</code></td><td>65.5%</td><td>0.551</td><td>0.551</td><td><b>828</b></td><td><b>no</b></td></tr>
       </tbody>
     </table>
     </div>
-    <p style="color:#9aa1b3;font-size:13.5px;">Distil 1.51.1, 9-trajectory corpus, generated 2026-09-06. <em>Recall</em> is the macro average across domains, counting facts that are recoverable through an expand handle; <em>visible</em> counts only facts still readable in the forwarded text. <code>subscription</code> is the lossless-only path driven through the adapter's real verbatim branch, not a reconstruction of it. Every rung carries production's reject-if-bigger guard, so no rung can report savings the proxy would not take. Regenerate with <code>distil bench --curve</code>.</p>
+    <p style="color:#9aa1b3;font-size:13.5px;">Distil 1.58.0 + the unreleased visible-recall change, 9-trajectory corpus, generated 2026-10-30. <em>Recall</em> is the macro average across domains, counting facts that are recoverable through an expand handle; <em>visible</em> counts only facts still readable in the forwarded text. <code>subscription</code> is the lossless-only path driven through the adapter's real verbatim branch, not a reconstruction of it. Every rung carries production's reject-if-bigger guard, so no rung can report savings the proxy would not take. Regenerate with <code>distil bench --curve</code>.</p>
 
     <h3>Three things the curve says that the gate cannot</h3>
     <ul>
-      <li><b>The digest is where the savings live, and it costs no facts.</b> <code>lossless</code> removes 47% of tokens while total recall stays at 1.000. Its <em>visible</em> recall drops to 0.769, which is the mechanism made legible: roughly a quarter of the facts moved behind a recovery handle rather than being deleted. That gap <em>is</em> Tier-1, drawn to scale.</li>
+      <li><b>The digest is where the savings live, and it costs no facts.</b> <code>lossless</code> removes 45% of tokens while total recall stays at 1.000. Its <em>visible</em> recall drops to 0.825, which is the mechanism made legible: about a sixth of the facts moved behind a recovery handle rather than being deleted. (Before the digest started keeping the densest identifier lines in view, this rung read 47.0% / 0.769: the change spends two points of savings to keep paths, URLs and hashes readable.) That gap <em>is</em> Tier-1, drawn to scale.</li>
       <li><b>Lossless-only saves nothing on this corpus — and that is the real path, not a proxy for it.</b> <code>subscription</code> runs the adapter's own verbatim branch, structured folds included, and still measures 0.0%: those folds need tabular or templated output, and this corpus is prose logs. It sits exactly on <code>tier-0 only</code>. This reproduces what the live 4-arm A/B found on real traffic, and it is the honest answer to "can I get the savings without the digest?" — on this shape of content, no.</li>
       <li><b>The curve bends exactly once.</b> <code>aggressive</code> buys 18 more points of savings and pays 828 facts for them, irrecoverably, because it issues no handle. That is the cliff <code>target_equivalence = 1.0</code> exists to stay away from, and the reason the dial's default never reaches this rung.</li>
     </ul>

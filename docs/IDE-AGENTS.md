@@ -63,7 +63,6 @@ lying.
 |---|---|---|---|---|
 | **aider** | `distil wrap -- aider` | env var | `OPENAI_API_BASE` | [source](https://aider.chat/docs/llms/openai-compat.html) (2026-09-16) |
 | **Claude Code** | `distil wrap -- claude` | env var | `ANTHROPIC_BASE_URL` | [source](https://docs.anthropic.com/en/api/client-sdks) (2026-09-16) |
-| **Codex CLI** | `distil wrap -- codex` | env var | `OPENAI_BASE_URL` | [source](https://github.com/openai/codex/blob/main/codex-rs/model-provider-info/src/lib.rs) (2026-09-24) |
 | **Gemini CLI** | `distil wrap -- gemini` | env var | `GOOGLE_GEMINI_BASE_URL` | [source](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/configuration.md) (2026-09-16) |
 | **GitHub Copilot CLI** | `distil wrap -- copilot` | env var | `COPILOT_PROVIDER_BASE_URL` | [source](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models) (2026-09-16) |
 | **goose** | `distil wrap -- goose` | env var | `OPENAI_HOST` | [source](https://block.github.io/goose/docs/getting-started/providers/) (2026-09-16) |
@@ -71,10 +70,12 @@ lying.
 | **Kilo Code CLI** | `distil wrap -- kilo` | env var | `KILO_CONFIG_CONTENT` | [source](https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/contributing/architecture/cli-runtime.md) (2026-09-16) |
 | **Kimi CLI** | `distil wrap -- kimi` | env var | `KIMI_BASE_URL` | [source](https://moonshotai.github.io/kimi-cli/configuration/) (2026-09-24) |
 | **Mistral Vibe** | `distil wrap -- vibe` | env var | `VIBE_PROVIDERS` | [source](https://github.com/mistralai/mistral-vibe/blob/main/docs/adr/0005-layered-configuration.md) (2026-09-16) |
+| **OpenClaude** | `distil wrap -- openclaude` | env var | `OPENAI_BASE_URL` | [source](https://github.com/Gitlawb/openclaude#readme) (2026-10-29) |
 | **OpenCode** | `distil wrap -- opencode` | env var | `OPENAI_BASE_URL` | [source](https://opencode.ai/docs/providers/) (2026-09-24) |
 | **OpenHands** | `distil wrap -- openhands` | env var | `LLM_BASE_URL` | [source](https://docs.all-hands.dev/usage/how-to/cli-mode) (2026-09-16) |
 | **Qwen Code** | `distil wrap -- qwen` | env var | `OPENAI_BASE_URL` | [source](https://github.com/QwenLM/qwen-code#readme) (2026-09-16) |
 | **Cline** | `distil wrap -- cline` | config file (patch strategy) | `providers.json → providers.<id>.settings.baseUrl` | [source](https://docs.cline.bot/cli/cli-reference) (2026-09-16) |
+| **Codex** | `distil wrap -- codex` | config file (flag strategy) | `-c model_providers.distil (supports_websockets=false)` | [source](https://github.com/openai/codex/blob/main/codex-rs/model-provider-info/src/lib.rs) (2026-10-29) |
 | **Continue** | `distil wrap -- cn` | config file (flag strategy) | `config.yaml → models[].apiBase (via --config)` | [source](https://docs.continue.dev/cli/configuration) (2026-09-06) |
 | **Crush** | `distil wrap -- crush` | config file (patch strategy) | `crush.json → providers.<id>.base_url` | [source](https://github.com/charmbracelet/crush/blob/main/docs/config/README.md) (2026-09-07) |
 | **Factory Droid** | `distil wrap -- droid` | config file (overlay strategy) | `settings.local.json → customModels[].baseUrl` | [source](https://docs.factory.ai/model-independence/byok) (2026-09-06) |

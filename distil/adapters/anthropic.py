@@ -38,13 +38,18 @@ from ..compress.tier0 import collapse_runs, minify_json
 from ..mcp_server import load_restore as _load_restore
 from ..mcp_server import record_restore as _record_restore
 from ..compress.intent import extract_intent
+from ..compress import keep_policy as _kp
 from ..compress import keeptags as _keeptags
 from ..compress import vision as _vision
+from ..compress.tier1 import _shape as _tier1_shape
 from ..compress.tier1 import digest as _tier1_digest
 from ..tokenizer import DEFAULT as _tokenizer
 
 # Minimum line count for a tool_result to be digested (matches Tier1Reversible default).
 _MIN_LINES = 6
+# A digest must cost at most this share of the original's tokens, or the block is
+# declined (lossless Tier-0 only).
+_DIGEST_MAX_RATIO = 0.95
 
 # Block types with their own dedicated handling in _compress_content_item. The
 # provider-signed-opaque fallback below must never fire for one of these even if it
@@ -388,12 +393,28 @@ _EVICT_MIN_TOKENS = 128
 
 
 def evicted_stub(text: str, handle: str) -> str:
-    """The stub an evicted tool_result becomes. A pure function of the content (its handle
-    and line count), so the bytes are identical on every turn that forwards it."""
-    return (
+    """The stub an evicted tool_result becomes. A pure function of the content (its handle,
+    line count and carried lines), so the bytes are identical on every turn that forwards it."""
+    stub = (
         f"<<distil evicted older tool output ({text.count(chr(10)) + 1} lines); "
         f"distil_expand handle={handle} recovers it>>"
     )
+    # The stub carries what the agent most often comes back for: one sample per shape of
+    # the block's must-keep lines (errors, verdicts) and its densest identifier lines,
+    # within the share the digest spends. Still a pure function of the content.
+    lines = text.splitlines()
+    kind = _kp.classify(text)
+    keep: set[int] = set()
+    governed: set[int] = set()
+    shapes: set[str] = set()
+    for i, ln in enumerate(lines):
+        if _kp.must_keep(ln, kind):
+            governed.add(i)
+            if (s := _tier1_shape(ln)) not in shapes:
+                shapes.add(s)
+                keep.add(i)
+    keep |= _kp.identifier_lines(lines, int(len(text) * _kp.IDENT_BUDGET), skip=governed)
+    return "\n".join([stub, *(lines[i] for i in sorted(keep))])
 
 
 def cold_candidates(
@@ -827,14 +848,16 @@ def _compress_tool_result_text(
     # Requires a handle to stay recoverable, so it is skipped when verbatim (no expand
     # tool available) and when recent (must stay byte-exact for the next decision).
     if not verbatim and not is_recent and not keep_byte_exact:
-        from ..compress.htmlx import extract as _html_extract
+        from ..compress.htmlx import extract_any as _html_extract
 
         stripped = _html_extract(text)
         if stripped is not None:
             h = _handle(text)
-            if store._record(h, text):
+            out = f"{stripped}\n<< html chrome elided, handle={h} >>"
+            # Reject-if-bigger by tokens (what we bill), not just characters.
+            if _tokenizer.count(out) < _tokenizer.count(text) and store._record(h, text):
                 _census("tool_result_html_stripped", text)
-                return f"{stripped}\n<< html chrome elided, handle={h} >>"
+                return out
 
     lines = text.splitlines()
     if len(lines) < _MIN_LINES:
@@ -873,7 +896,11 @@ def _compress_tool_result_text(
         return _apply_tier0(text)
 
     digested, changed = _tier1_digest(text, intent=_active_intent())
-    if changed:
+    # Reject-if-bigger by tokens: the digest shrinks characters by construction, but a
+    # block whose kept lines are most of it can still cost more tokens with its markers
+    # (a hex handle tokenizes poorly). Demand a real margin, not a rounding one: the
+    # local token count is an estimate, and a near-zero saving is not worth a handle.
+    if changed and _tokenizer.count(digested) <= _tokenizer.count(text) * _DIGEST_MAX_RATIO:
         h = _handle(text)
         if store._record(h, text):
             _census("tool_result_digested", text)
@@ -1341,6 +1368,7 @@ def compress_messages(
     persist: bool = True,
     refetch: bool | None = None,
     sticky_evict: bool = False,
+    first_sight: bool = False,
 ) -> tuple[list[dict[str, Any]], RestoreStore]:
     """Compress an Anthropic Messages API messages list in place (non-mutating).
 
@@ -1374,6 +1402,11 @@ def compress_messages(
         Forward a tool result verbatim when it re-fetches content an earlier result
         carried but distil forwarded only as a digest (ADR 0025). ``None`` (the default)
         follows :func:`refetch_enabled`; ``True``/``False`` force it, for offline replay.
+    first_sight:
+        No recency window: every tool result, the newest included, gets its compression
+        decision the first time it is seen (query-aware where uncached, as always). Only
+        for callers that freeze each message as first emitted (prefix replay
+        ``freeze=True`` on a preserved-thinking lineage, ADR 0028 addendum 3) and offer ``distil_expand``.
 
     Returns
     -------
@@ -1404,7 +1437,7 @@ def compress_messages(
     _intent_tls.terms = frozenset() if (verbatim or _probe) else extract_intent(messages)
     use_refetch = (refetch_enabled() if refetch is None else refetch) and not verbatim
     try:
-        recent = _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
+        recent = set() if first_sight else _recent_verbatim_indices(messages, _RECENCY_KEEP_TURNS)
         # Query-aware salience is scoped to content the provider has NOT cached.
         # Intent terms come from the newest user turn and change every turn by
         # design, so letting them choose which lines survive in an already-cached
@@ -1484,6 +1517,7 @@ def refetch_tool_use_ids(
     keep: Any = None,
     evict: frozenset[str] = frozenset(),
     sticky_evict: bool = False,
+    first_sight: bool = False,
 ) -> frozenset[str]:
     """Ids of the tool results ``compress_messages`` would forward verbatim as re-fetches
     (ADR 0025), for a pre-pass that runs before it and must leave them alone.
@@ -1500,7 +1534,12 @@ def refetch_tool_use_ids(
     _refetch_tls.probe = True
     try:
         compress_messages(
-            messages, keep=keep, evict=evict, persist=False, sticky_evict=sticky_evict
+            messages,
+            keep=keep,
+            evict=evict,
+            persist=False,
+            sticky_evict=sticky_evict,
+            first_sight=first_sight,
         )
     finally:
         _refetch_tls.probe = False

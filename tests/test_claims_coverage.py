@@ -80,7 +80,6 @@ NON_CLAIMS: dict[str, dict[str, str]] = {
         "2.1×": "named only to say the 0.27.0-era ratio does not survive the re-run",
         "40%": "39.7% rounded, in the same sentence that dates it",
         "91%": "~91% rounds the 2026-06-23 block's 91.1%, covered by v-benchmark-codebench",
-        "47%": "47.0% rounded, covered by v-curve-lossless",
     },
     "docs/architecture.html": {
         "20%": "the validate harness's default control-group split, a flag value not a result",

@@ -33,7 +33,7 @@ from typing import Any
 
 from .arms import Arm, ArmUnavailable
 
-HR_VERSION = "0.40.0"
+HR_VERSION = "0.42.0"
 HR_EXTRA = "proxy"
 HR_MODE = "cache"  # the proxy's own default; recorded, not passed
 STARTUP_TIMEOUT = 300.0  # the ML extras load models on first start

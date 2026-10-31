@@ -290,6 +290,55 @@
     </div>
     <p style="font-size:12.5px;color:#5b6177;">*By design, not a regression: this workload is read &rarr; edit &rarr; re-read, and once the agent has quoted a Read/Grep/Glob result byte-exact, that provenance is exempted from digest for the rest of the session — the exact-quote guarantee an <code>Edit</code> depends on. Headroom's own number here is a real improvement over the <a href="benchmark.html#coding-agent-2026-06-23">June measurement</a>, kept on benchmark.html as a dated historical block: it moved from a net cost increase to a net decrease on a newer, non-ML code path, 2.4&times; faster per turn. benchmark.html's own headline table was refreshed to these same 2026-09-04 numbers; see <a href="https://github.com/dshakes/distil/blob/main/docs/claims.json"><code>docs/claims.json</code></a> (<code>s-benchmark-headline</code>).</p>
 
+    <h2 id="headroom-042-offline">Headroom 0.42.0, offline head-to-head, 2026-10-29</h2>
+    <p><strong>What this is and is not.</strong> A pre-registered, offline, $0 comparison on <strong>real tool output</strong>: 360 tool results (60 each of logs, JSON, code, HTML, search, prose) and 30 Claude Code sessions of 12 requests, all from one machine's own transcripts. It measures tokens removed, fact recall and a modelled prompt-cache bill. It does <strong>not</strong> measure cost or task success: output tokens and the extra round trip of every <code>distil_expand</code> an agent would need are not priced, and behaviour is held fixed. The SWE-bench run with a Headroom arm is still going (see <a href="#money">above</a>), so nothing here says which tool makes an agent cheaper or better. Headroom ran as <code>headroom-ai</code> 0.42.0 built from source with its proxy, code, ML, HTML and relevance extras and its Kompress model loaded before timing; its default (library), its proxy's out-of-box <code>coding</code> profile and its most aggressive documented profile (<code>agent-90</code>). Method, deviations and every table: <a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/headroom-0-42-h2h/README.md"><code>benchmarks/results/headroom-0-42-h2h/</code></a>.</p>
+
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Headroom 0.42.0 offline head-to-head, distil 1.58.0">
+    <table>
+      <thead><tr><th scope="col">distil 1.58.0 vs Headroom 0.42.0, all 360 samples</th><th scope="col">tokens removed</th><th scope="col">visible recall</th><th scope="col">true recall</th><th scope="col">session $ vs plain (model)</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">distil default (digest)</th><td>13.7%</td><td>86.1%</td><td>100%</td><td>&minus;29.7%</td></tr>
+        <tr><th scope="row">Headroom <code>coding</code> (proxy default)</th><td>6.3%</td><td><strong>94.3%</strong></td><td>99.3%</td><td>&minus;7.7%</td></tr>
+        <tr><th scope="row">Headroom library default</th><td>7.2%</td><td><strong>93.2%</strong></td><td>99.1%</td><td>&minus;0.2% (delta mode)</td></tr>
+        <tr><th scope="row">distil aggressive (+ cold-point eviction)</th><td>42.5%</td><td>55.2%</td><td>99.8%</td><td>not run on sessions</td></tr>
+        <tr><th scope="row">Headroom <code>agent-90</code></th><td>23.8%</td><td><strong>79.0%</strong></td><td>99.4%</td><td>&minus;13.6%</td></tr>
+        <tr><th scope="row">distil lossless-only</th><td>1.6%</td><td>100%</td><td>100%</td><td>&minus;0.3%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="font-size:12.5px;color:#5b6177;">Tokens: o200k, mean per sample. Visible recall = facts still in the text the model reads; true recall adds facts recoverable through the tool's own retrieval path. Session $ is the policysim Anthropic cache model at Sonnet 5.5 list prices on o200k counts, messages only, requests 10 s apart; Headroom in its proxy's cache-mode delta engine, distil served with prefix replay. The matcher cannot match 23 of the 6,007 facts even against the original, so a handful of "lost" facts on both sides are an artifact, not loss.</p>
+
+    <div class="callout" style="border-color:#2a2550">
+      <strong>Where Headroom genuinely wins.</strong>
+      <ul style="margin:10px 0 0 20px;padding:0">
+        <li><strong>Visible recall, against distil 1.58.0.</strong> Headroom keeps more detail in front of the model in every lossy tier: +8.3 points over distil's default (+20.8 on logs, +13.2 on code) and +23.9 at the aggressive tier. distil got its tokens by moving detail behind <code>distil_expand</code> handles. This release answers that gap (below), but the 1.58.0 numbers are what shipped until now.</li>
+        <li><strong>Prose.</strong> <code>agent-90</code>'s Kompress takes 35.0% off Markdown reads; distil's aggressive tier takes 4.8%. This release does not close it.</li>
+        <li><strong>Cost at the lossless tier.</strong> Headroom's proxy default (&minus;7.7% on the session model) beats distil's lossless-only mode (&minus;0.3%), which is what a subscription user runs.</li>
+        <li><strong>JSON objects at the default tier:</strong> 33.2% vs 24.6%, though that difference's interval crosses zero.</li>
+      </ul>
+      <p style="margin:10px 0 0">Where distil leads on this data: tokens (+7.4 points at default, +18.7 aggressive, driven by logs, code and HTML), true recall (no real fact lost vs Headroom's 73–80, mostly in JSON), exact recoverability (98.1–100% of samples vs 83.6–92.5%), the modelled session bill, and latency (p95 at most 18 ms vs 0.4–1.4 s with Kompress on CPU). The cost lead rests on hiding detail, and only a live A/B can price that.</p>
+    </div>
+
+    <h3 id="visible-recall">This release: facts the agent acts on stay in view</h3>
+    <p>The digest now keeps the densest identifier lines &mdash; paths, URLs, hashes, <code>key=value</code> &mdash; within a tenth of each block, the cold-point stub keeps one sample of each must-keep line shape, and XML or JSON envelopes are no longer stripped as HTML chrome. It was tuned on half the samples and run once on the other half; the chart and table are that held-out half (n=180). Raw: <a href="https://github.com/dshakes/distil/blob/main/benchmarks/results/visible-recall/README.md"><code>benchmarks/results/visible-recall/</code></a>.</p>
+    <img src="assets/visible-recall.svg" alt="Held-out visible and true fact recall, n=180. Default tier: distil before this release 86.1% visible, this release 98.4%; Headroom 0.42 default 92.4%, coding profile 93.7%. Aggressive tier: distil before 55.4%, this release 88.7%; Headroom agent-90 81.0%. True recall 100% for every new distil arm, 99.1 to 99.3% for Headroom." class="svg-embed"/>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Visible recall, held-out half">
+    <table>
+      <thead><tr><th scope="col">held-out, n=180</th><th scope="col">tokens removed</th><th scope="col">visible recall</th><th scope="col">true recall</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">distil default, 1.58.0</th><td>13.7%</td><td>86.1%</td><td>100.0%</td></tr>
+        <tr><th scope="row">distil default, this release</th><td>11.0%</td><td><strong>98.4%</strong></td><td>100.0%</td></tr>
+        <tr><th scope="row">Headroom default</th><td>7.1%</td><td>92.4%</td><td>99.1%</td></tr>
+        <tr><th scope="row">Headroom <code>coding</code></th><td>6.1%</td><td>93.7%</td><td>99.1%</td></tr>
+        <tr><th scope="row">distil aggressive, 1.58.0</th><td>41.9%</td><td>55.4%</td><td>99.7%</td></tr>
+        <tr><th scope="row">distil aggressive, this release</th><td>29.2%</td><td><strong>88.7%</strong></td><td>100.0%</td></tr>
+        <tr><th scope="row">Headroom <code>agent-90</code></th><td>23.9%</td><td>81.0%</td><td>99.3%</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p><strong>Read it with the intervals.</strong> The visible-recall lead over Headroom is significant at both tiers (paired, points, 95% CI): +6.0 [+2.2, +10.3] over the default, +4.7 [+1.1, +8.7] over <code>coding</code>, +7.6 [+1.3, +13.8] over <code>agent-90</code>. The token lead is <strong>not</strong> significant against the default (+3.8 [&minus;0.7, +8.3]) or <code>agent-90</code> (+5.3 [&minus;2.2, +13.1]); it clears zero only against <code>coding</code> (+4.8 [+0.3, +9.3]). The change cost distil tokens to get there: &minus;2.8 points at default, &minus;12.7 aggressive. Prose is still Headroom's: <code>agent-90</code> cuts it 37.5% at 70.2% visible, distil 2.7%.</p>
+    <p class="note"><strong>Not measured.</strong> The scorer and the new keep rule share a notion of "fact" (paths, URLs, hashes, <code>key=value</code>), so this is the matcher agreeing with a rule written for it, not an independent judge; on the retention corpus, a different data set under the same matcher, the change moves in the same direction and by less. How often an agent still has to call <code>distil_expand</code>, and whether task success changes, are not measured. Those need the live A/B.</p>
+
     <hr/>
 
     <h2 id="e8-outcomes">Real task success</h2>
