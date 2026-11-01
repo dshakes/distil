@@ -436,7 +436,10 @@ def test_generated_units_are_valid_to_systemd(tmp_path, monkeypatch, real_servic
     )
     # verify exits non-zero on a real problem and prints to stderr on any complaint.
     assert res.returncode == 0, f"systemd rejected the units:\n{res.stderr}\n{res.stdout}"
-    assert not res.stderr.strip(), f"systemd complained about the units:\n{res.stderr}"
+    # verify also lints the host's own units (a newer systemd warns about the runner image's
+    # CPUAccounting= in xfs_scrub_all.service), so only complaints naming ours count.
+    ours = [ln for ln in res.stderr.splitlines() if "distil-proxy." in ln]
+    assert not ours, "systemd complained about the units:\n" + "\n".join(ours)
 
 
 class _FakeFree:
