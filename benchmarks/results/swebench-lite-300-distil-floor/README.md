@@ -12,7 +12,7 @@ rows are reused from that run, not re-run. Agent spend $7.58, run 2026-10-31. Gr
 |---|---|---|---|---|
 | plain | 209/299 | - | 1287 | $7.45 |
 | distil 1.58.0 | 208/299 | non-inferior | 1436 (+11.6%, p = 0.002) | $7.95 |
-| **distil + floor** | **206/299** | **-1.0 pts [-4.4, +2.4], non-inferior (p = 0.70)** | **1321 (+2.6%, p = 0.59)** | **$7.58 (+1.9%)** |
+| **distil + floor** | **206/299 (68.9%, Wilson 63.4% to 73.9%)** | **-1.0 pts [-4.4, +2.4], non-inferior (p = 0.70)** | **1321 (+2.6%, p = 0.59)** | **$7.58 (+1.9%)** |
 
 A second plain run (2026-10-31, $7.46) solved 208 with 1305 steps, so step noise between identical
 runs is about ±1.4%. Against 1.58.0 the floor takes fewer steps on 84 tasks and more on 48

@@ -74,7 +74,7 @@
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="shell.html">Shell at the Source <span class="nav-badge">New</span></a></li>
+          <li><a href="shell.html">Shell at the Source</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
           <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
@@ -121,6 +121,22 @@
       <tbody>
         <tr><td>plain (no compression)</td><td>$0.0356</td><td>209/299 · 69.9% (64.5%–74.8%)</td><td>baseline</td><td>$7.43</td><td>5,659,396 / 336,858</td><td>1284</td><td>—</td></tr>
         <tr><td>distil</td><td>$0.0366</td><td>207/299 · 69.2% (63.8%–74.2%)</td><td>-0.7 [-4.0, +2.7] · NON-INFERIOR</td><td>$7.57</td><td>6,521,174 / 337,193</td><td>1386</td><td>distil 1.58.0</td></tr>
+        <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>
+        <tr><td>Anthropic context editing</td><td colspan="7"><i>pending run</i></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2 id="swebench-lite-300-distil-floor">SWE-bench Lite (300), Sonnet 5.5, effort medium, distil with the 2,000-token lossy floor (official grader)</h2>
+    <p><code>claude-sonnet-5-5</code> · effort medium · n = 299 tasks graded in every arm · run 2026-10-31. Source: <a href="https://github.com/dshakes/distil/tree/main/benchmarks/results/swebench-lite-300-distil-floor"><code>benchmarks/results/swebench-lite-300-distil-floor</code></a>. Plain rows are reused from swebench-lite-300-headroom-042 (same model, effort and tasks). The floor stops distil stubbing small outputs the first time the agent sees them: steps vs plain fell from +11.6% to +2.6% (not significant), and the cost interval still crosses 1, so no cost difference is shown.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="SWE-bench Lite (300), Sonnet 5.5, effort medium, distil with the 2,000-token lossy floor (official grader) scoreboard">
+    <table>
+      <thead><tr><th>Compressor</th><th>$ per solved task</th><th>Solved (95% CI)</th><th>vs plain, pts [95% CI]</th><th>Total $</th><th>Tokens in / out</th><th>Steps</th><th>Pinned version</th></tr></thead>
+      <tbody>
+        <tr><td>plain (no compression)</td><td>$0.0356</td><td>209/299 · 69.9% (64.5%–74.8%)</td><td>baseline</td><td>$7.43</td><td>5,659,396 / 336,858</td><td>1284</td><td>—</td></tr>
+        <tr><td>distil</td><td>$0.0368</td><td>206/299 · 68.9% (63.4%–73.9%)</td><td>-1.0 [-4.4, +2.4] · NON-INFERIOR</td><td>$7.57</td><td>6,628,594 / 331,576</td><td>1318</td><td>distil 1.58.0</td></tr>
         <tr><td>RTK</td><td colspan="7"><i>pending run</i></td></tr>
         <tr><td>Headroom</td><td colspan="7"><i>pending run</i></td></tr>
         <tr><td>Selective Context</td><td colspan="7"><i>pending run</i></td></tr>

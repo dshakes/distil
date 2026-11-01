@@ -209,6 +209,97 @@
       "source": "benchmarks/results/swebench-lite-300-distil-recall"
     },
     {
+      "benchmark": "SWE-bench Lite (300), Sonnet 5.5, effort medium, distil with the 2,000-token lossy floor (official grader)",
+      "cost_confound": {},
+      "cost_note": null,
+      "date": "2026-10-31",
+      "effort": "medium",
+      "id": "swebench-lite-300-distil-floor",
+      "model": "claude-sonnet-5-5",
+      "n_common": 299,
+      "note": "plain rows are reused from swebench-lite-300-headroom-042 (same model, effort and tasks). The floor stops distil stubbing small outputs the first time the agent sees them: steps vs plain fell from +11.6% to +2.6% (not significant), and the cost interval still crosses 1, so no cost difference is shown",
+      "rows": [
+        {
+          "arm": "plain",
+          "cost_basis": "cold",
+          "cost_usd": 7.4302,
+          "label": "plain (no compression)",
+          "library": null,
+          "n": 299,
+          "precached_rows": [
+            0,
+            300
+          ],
+          "rate": 0.698997,
+          "rate_ci": [
+            0.64475,
+            0.748195
+          ],
+          "resolved": 209,
+          "status": "measured",
+          "steps": 1284,
+          "tokens_in": 5659396,
+          "tokens_out": 336858,
+          "usd_per_solved": 0.0356,
+          "verdict": null,
+          "version": null,
+          "vs_plain_ci_pts": null,
+          "vs_plain_pts": null
+        },
+        {
+          "arm": "distil",
+          "cost_basis": "cold",
+          "cost_usd": 7.5705,
+          "label": "distil",
+          "library": "distil",
+          "n": 299,
+          "precached_rows": [
+            0,
+            300
+          ],
+          "rate": 0.688963,
+          "rate_ci": [
+            0.634374,
+            0.738758
+          ],
+          "resolved": 206,
+          "status": "measured",
+          "steps": 1318,
+          "tokens_in": 6628594,
+          "tokens_out": 331576,
+          "usd_per_solved": 0.0368,
+          "verdict": "NON-INFERIOR",
+          "version": "1.58.0",
+          "vs_plain_ci_pts": [
+            -4.41,
+            2.4
+          ],
+          "vs_plain_pts": -1.0
+        },
+        {
+          "arm": "rtk",
+          "label": "RTK",
+          "status": "pending run"
+        },
+        {
+          "arm": "headroom",
+          "label": "Headroom",
+          "status": "pending run"
+        },
+        {
+          "arm": "selective",
+          "label": "Selective Context",
+          "status": "pending run"
+        },
+        {
+          "arm": "provider-cm",
+          "label": "Anthropic context editing",
+          "status": "pending run"
+        }
+      ],
+      "source": "benchmarks/results/swebench-lite-300-distil-floor"
+    },
+    {
       "benchmark": "SWE-bench Verified, hard tasks, effort max (official grader)",
       "cost_confound": {},
       "cost_note": null,

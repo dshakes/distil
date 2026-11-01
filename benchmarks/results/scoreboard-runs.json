@@ -25,6 +25,17 @@
       "note": "plain rows are reused from swebench-lite-300-headroom-042 (same model, effort and tasks). The visible-recall change cut distil's cost overhead from +7.4% to +2.8%; the interval still crosses 1, so no cost difference is shown"
     },
     {
+      "id": "swebench-lite-300-distil-floor",
+      "kind": "swebench_outcome",
+      "dir": "benchmarks/results/swebench-lite-300-distil-floor",
+      "date": "2026-10-31",
+      "benchmark": "SWE-bench Lite (300), Sonnet 5.5, effort medium, distil with the 2,000-token lossy floor",
+      "versions": {
+        "distil": "1.58.0 + 2,000-token floor (released in 1.59.0)"
+      },
+      "note": "plain rows are reused from swebench-lite-300-headroom-042 (same model, effort and tasks). The floor stops distil stubbing small outputs the first time the agent sees them: steps vs plain fell from +11.6% to +2.6% (not significant), and the cost interval still crosses 1, so no cost difference is shown"
+    },
+    {
       "id": "swebench-verified-hard-max",
       "kind": "swebench_outcome",
       "dir": "benchmarks/results/swebench-verified-hard-max",
