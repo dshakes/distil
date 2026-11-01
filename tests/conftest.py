@@ -50,6 +50,22 @@ def pytest_configure(config):
         "real_home: opt out of the per-test HOME/USERPROFILE sandbox (path-resolution "
         "tests that must see the genuine home; they may not write under it)",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_digest_floor: keep the shipped _DIGEST_MIN_TOKENS (tests of the floor itself)",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _digest_floor_off(request, monkeypatch):
+    """Digest-mechanics fixtures are a few hundred tokens, far under the shipped lossy
+    floor, so the suite tests the digest path with the floor at 0; the floor's own tests
+    carry ``real_digest_floor``."""
+    if request.node.get_closest_marker("real_digest_floor"):
+        return
+    from distil.adapters import anthropic
+
+    monkeypatch.setattr(anthropic, "_DIGEST_MIN_TOKENS", 0)
 
 
 @pytest.fixture(autouse=True)

@@ -31,7 +31,7 @@ def _await_file(path, timeout=60.0):
 _CHILD = r"""
 import os, json, urllib.request
 base = os.environ["ANTHROPIC_BASE_URL"]
-tr = "get_logs()\n" + "\n".join("info: verbose log line %d" % i for i in range(40)) + "\nDECISION: act"
+tr = "get_logs()\n" + "\n".join("info: verbose log line %d" % i for i in range(600)) + "\nDECISION: act"  # over the 2k-token lossy floor
 body = json.dumps({"model": "claude-opus-4-8", "messages": [
     {"role": "user", "content": "go"},
     {"role": "user", "content": [{"type": "tool_result", "content": tr}]},

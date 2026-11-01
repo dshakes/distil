@@ -776,7 +776,7 @@ response = client.messages.create(
       <li><strong>Compresses the messages array</strong> via <code>compress_messages()</code>:
         <ul>
           <li>User text blocks: Tier-0 lossless transforms (JSON minify + run collapse).</li>
-          <li>Tool result blocks with ≥ 6 lines: Tier-1 reversible digest, original stored in a local <code>RestoreStore</code>.</li>
+          <li>Tool result blocks of ≥ 2,000 tokens (and ≥ 6 lines): Tier-1 reversible digest, original stored in a local <code>RestoreStore</code>.</li>
           <li>Assistant text and <code>tool_use</code> blocks: passed through unchanged.</li>
           <li><code>image</code> blocks: a duplicate of an already-seen image (certificate-gated, ADR 0003) is elided to a reversible reference; the first occurrence is always left untouched.</li>
         </ul>

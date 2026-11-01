@@ -40,6 +40,7 @@ from ..mcp_server import record_restore as _record_restore
 from ..compress.intent import extract_intent
 from ..compress import keep_policy as _kp
 from ..compress import keeptags as _keeptags
+from ..compress import prose as _prose
 from ..compress import vision as _vision
 from ..compress.tier1 import _shape as _tier1_shape
 from ..compress.tier1 import digest as _tier1_digest
@@ -47,6 +48,16 @@ from ..tokenizer import DEFAULT as _tokenizer
 
 # Minimum line count for a tool_result to be digested (matches Tier1Reversible default).
 _MIN_LINES = 6
+# Lossy rewrites (digest, HTML strip) only on a block of at least this many tokens. Every
+# tool output is new when the agent first sees it, and a stub of what it just asked for
+# sends it back to read it again. Measured on SWE-bench Lite-300 (Sonnet 5.5, 2026-10-30):
+# 239 first-sight stubs, 194 of them under 2k chars, cut 22% of tool-result chars across
+# all re-sends (~$0.27, mostly 0.05x cache reads) and cost +11.6% steps (+150, ~$0.87;
+# sign p=0.002 against two plain runs). Replayed with this floor: 18 stubbed views, not
+# 1323. Below ~2000 tokens a stub cannot repay its ~0.6 extra steps. Size is a pure
+# function of the content, so the decision never flips between turns (cache-safe), and it
+# only shrinks the served digest-set, which keeps it inside the certified one.
+_DIGEST_MIN_TOKENS = 2000
 # A digest must cost at most this share of the original's tokens, or the block is
 # declined (lossless Tier-0 only).
 _DIGEST_MAX_RATIO = 0.95
@@ -847,7 +858,8 @@ def _compress_tool_result_text(
     # Tier-0-only and save nothing (measured: 0.0% on a realistic 8.3k-token page).
     # Requires a handle to stay recoverable, so it is skipped when verbatim (no expand
     # tool available) and when recent (must stay byte-exact for the next decision).
-    if not verbatim and not is_recent and not keep_byte_exact:
+    big = not verbatim and not is_recent and _tokenizer.count(text) >= _DIGEST_MIN_TOKENS
+    if big and not keep_byte_exact:
         from ..compress.htmlx import extract_any as _html_extract
 
         stripped = _html_extract(text)
@@ -894,6 +906,28 @@ def _compress_tool_result_text(
     if keep_byte_exact:
         _census("tool_result_learned_keep", text)
         return _apply_tier0(text)
+
+    if not big:
+        # Below the lossy floor: the agent reads it whole; the lossless fold still applies.
+        folded = _lossless_fold(text)
+        if folded is not None and len(folded) < len(text):
+            _census("tool_result_short_folded", text)
+            return _apply_tier0(folded)
+        _census("tool_result_short", text)
+        return _apply_tier0(text)
+
+    if _prose.is_prose(text):
+        # Prose has no repeated or low-salience lines for the line digest to fold, so it
+        # drops whole sentences instead; everything left still reads as written.
+        condensed = _prose.condense(text, intent=_active_intent())
+        if condensed is not None:
+            h = _handle(text)
+            out = f"{condensed}\n<< prose condensed ({_prose.ELIDED} = elided), handle={h} >>"
+            if _tokenizer.count(out) <= _tokenizer.count(
+                text
+            ) * _DIGEST_MAX_RATIO and store._record(h, text):
+                _census("tool_result_prose_condensed", text)
+                return out
 
     digested, changed = _tier1_digest(text, intent=_active_intent())
     # Reject-if-bigger by tokens: the digest shrinks characters by construction, but a
