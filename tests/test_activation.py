@@ -22,17 +22,16 @@ from __future__ import annotations
 
 import os
 import plistlib
-import socket
-import time
 import shutil
+import socket
 import sys
 import threading
+import time
 import urllib.request
 
 import pytest
 
-from distil import activation
-from distil import setup
+from distil import activation, setup
 from distil.proxy import _listen
 from distil.setup import service_spec
 
@@ -103,12 +102,12 @@ def test_activated_proxy_serves_without_binding_a_second_socket(monkeypatch):
     from http.server import BaseHTTPRequestHandler
 
     class H(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - stdlib signature
+        def do_GET(self):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"served")
 
-        def log_message(self, *a):  # noqa: ANN002 - silence test output
+        def log_message(self, *a):
             pass
 
     monkeypatch.setattr(activation, "inherited_listener", lambda: supervisor)
@@ -342,12 +341,12 @@ def test_socket_activation_survives_a_worker_restart_on_linux(tmp_path):
     port = listener.getsockname()[1]
 
     class H(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - stdlib signature
+        def do_GET(self):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"pid=%d" % os.getpid())
 
-        def log_message(self, *a):  # noqa: ANN002
+        def log_message(self, *a):
             pass
 
     def spawn() -> int:
@@ -436,7 +435,13 @@ def test_generated_units_are_valid_to_systemd(tmp_path, monkeypatch, real_servic
     )
     # verify exits non-zero on a real problem and prints to stderr on any complaint.
     assert res.returncode == 0, f"systemd rejected the units:\n{res.stderr}\n{res.stdout}"
-    assert not res.stderr.strip(), f"systemd complained about the units:\n{res.stderr}"
+    # `verify` resolves the full unit namespace to check our dependencies, so on a host
+    # with its own pre-existing units it also emits deprecation noise about THOSE units
+    # (observed in CI: the runner image's xfs_scrub/walinuxagent services complaining
+    # about a removed `CPUAccounting=` option) — unrelated to anything we generated.
+    # Only fail on complaints that actually name one of our own unit files.
+    our_complaints = [line for line in res.stderr.splitlines() if "distil-proxy." in line]
+    assert not our_complaints, "systemd complained about our units:\n" + "\n".join(our_complaints)
 
 
 class _FakeFree:
