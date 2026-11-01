@@ -17,10 +17,10 @@ import pytest
 
 anthropic = pytest.importorskip("anthropic", reason="anthropic SDK not installed")
 
-from benchmarks.swebench_outcome import agent as ag  # noqa: E402
-from benchmarks.swebench_outcome import arm_headroom as hr  # noqa: E402
-from benchmarks.swebench_outcome import arms, cli, run  # noqa: E402
-from benchmarks.swebench_outcome.env import FakeEnv  # noqa: E402
+from benchmarks.swebench_outcome import agent as ag
+from benchmarks.swebench_outcome import arm_headroom as hr
+from benchmarks.swebench_outcome import arms, cli, run
+from benchmarks.swebench_outcome.env import FakeEnv
 
 ROOT = Path(__file__).resolve().parent.parent
 TASK = {"instance_id": "a__b-1", "problem_statement": "fix foo"}
@@ -72,7 +72,9 @@ def test_probe_refuses_missing_broken_or_wrong_version(tmp_path):
         arms.ArmUnavailable, match="not importable.*fastapi.*headroom-ai\\[proxy\\]"
     ):
         hr.probe(sys.executable, run=bad)
-    with pytest.raises(arms.ArmUnavailable, match="pinned headroom-ai==0.40.0, found 0.38.0"):
+    with pytest.raises(
+        arms.ArmUnavailable, match=f"pinned headroom-ai=={hr.HR_VERSION}, found 0.38.0"
+    ):
         hr.probe(sys.executable, run=_ok("0.38.0"))
     assert hr.probe(sys.executable, run=_ok())["headroom-ai"] == hr.HR_VERSION
 
@@ -151,7 +153,7 @@ def test_agent_sends_a_headroom_arm_through_its_own_client_and_never_the_direct_
         C("direct"), FakeEnv({"f.py": "x = 1\n"}), TASK, arm, ag.Cfg(), ag.Budget(None)
     )
     assert len(proxy_client.calls) == 1
-    assert r["arm"] == "headroom" and r["arm_meta"]["version"] == "0.40.0"
+    assert r["arm"] == "headroom" and r["arm_meta"]["version"] == hr.HR_VERSION
 
 
 def test_cli_run_refuses_before_spend_when_headroom_is_missing_and_closes_earlier_arms(
@@ -232,7 +234,7 @@ class _Upstream(http.server.BaseHTTPRequestHandler):
 
 
 def test_real_headroom_proxy_receives_the_arms_requests_and_forwards_upstream(monkeypatch):
-    """Skipped unless headroom-ai[proxy]==0.40.0 is importable here. Starts the REAL proxy process,
+    """Skipped unless headroom-ai[proxy]==0.42.0 is importable here. Starts the REAL proxy process,
     sends a request through the arm's client, and checks a stub upstream got it from Headroom."""
     pytest.importorskip("headroom", reason="headroom-ai not installed")
     pytest.importorskip("fastapi", reason="headroom-ai[proxy] not installed")
