@@ -1540,6 +1540,57 @@
         "0.961",
         "1.098"
       ]
+    },
+    {
+      "id": "v-swebench-lite-300-distil-floor",
+      "status": "verified",
+      "page": [
+        "compare.html",
+        "scoreboard.html"
+      ],
+      "anchor": "floor-159",
+      "snippet": "1.59.0 closes distil's step gap",
+      "claim": "SWE-bench Lite (300), Sonnet 5.5, effort medium, 2026-10-31, official grader: distil with the 2,000-token lossy floor (released in 1.59.0) took +2.6% steps vs plain (sign p = 0.59) against 1.58.0's +11.6% (p = 0.002), solved 206/299 (68.9%, Wilson 63.4% to 73.9%) vs plain 209/299 (-1.0 pts [-4.4, +2.4], non-inferior, McNemar p = 0.70) and cost +1.9% (interval crosses zero). Plain rows are reused from swebench-lite-300-headroom-042.",
+      "values": [
+        "11.6%",
+        "2.6%",
+        "1.9%",
+        "206",
+        "209",
+        "299",
+        "68.9%",
+        "63.4%",
+        "73.9%"
+      ],
+      "note": "Steps and cost computed from the run dir's results.jsonl and stated in its README; success figures match report.md and docs/scoreboard.json.",
+      "artifact": "benchmarks/results/swebench-lite-300-distil-floor/README.md"
+    },
+    {
+      "id": "v-headroom-042-h2h-floor",
+      "status": "verified",
+      "page": [
+        "compare.html",
+        "../README.md",
+        "llms.txt"
+      ],
+      "anchor": "floor-offline",
+      "snippet": "the lossy floor, re-run on fresh samples",
+      "claim": "Offline, $0 re-run of the Headroom 0.42.0 head-to-head with 1.59.0's 2,000-token floor on 347 freshly collected real tool outputs and 21 sessions: tokens removed distil default 2.3% / Headroom coding 5.5% / distil aggressive 30.3% / agent-90 28.5%; visible recall 99.6% / 94.7% / 86.0% / 73.0%; modelled session $ vs plain distil default -5.7%, coding -4.3% (paired difference not significant), agent-90 -15.7%.",
+      "values": [
+        "2.3%",
+        "5.5%",
+        "30.3%",
+        "28.5%",
+        "99.6%",
+        "94.7%",
+        "86.0%",
+        "73.0%",
+        "5.7%",
+        "4.3%",
+        "15.7%"
+      ],
+      "note": "Every figure is in the directory's README table, computed from its results.json ('all' rows and sessions).",
+      "artifact": "benchmarks/results/headroom-0-42-h2h-floor/README.md"
     }
   ]
 }

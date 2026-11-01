@@ -74,7 +74,7 @@
         <summary class="sidebar-section">Agent tooling</summary>
         <ul>
           <li><a href="hooks.html">Post-tool Hooks</a></li>
-          <li><a href="shell.html">Shell at the Source <span class="nav-badge">New</span></a></li>
+          <li><a href="shell.html">Shell at the Source</a></li>
           <li><a href="mcp.html">MCP Compressor</a></li>
           <li><a href="integrations.html">Integrations &amp; Library</a></li>
         </ul>
@@ -98,6 +98,11 @@
 
 <section class="changelog-entry">
 <h2 id="vUnreleased">Unreleased</h2>
+
+</section>
+
+<section class="changelog-entry">
+<h2 id="v1-59-0">1.59.0 — 2026-11-01 — the agent reads what it asked for: no more first-sight stubs, every route at parity</h2>
 <h3>Added</h3>
 <ul>
 <li><strong>Bedrock InvokeModel and Vertex AI routes</strong> (Anthropic <code>rawPredict</code>, Gemini <code>generateContent</code>) compress and book savings like the direct providers; the model comes from the URL and Bedrock cross-region profile ids (<code>us.anthropic...</code>) are priced. Bedrock streams (binary eventstream) are Tier-0 only and relayed unchanged, with usage read from the frames. Converse is forwarded untouched. SigV4-signed Bedrock requests are refused by proxy, gateway and aproxy (the signature covers Host and body; distil holds no AWS credentials): use a Bedrock API key. The preserved-thinking guards below key on the URL model on these routes too.</li>
@@ -112,6 +117,8 @@
 </ul>
 <h3>Changed</h3>
 <ul>
+<li><strong>Lossy digests need 2,000 tokens.</strong> distil digested any tool output of 6+ lines the first time the agent saw it (the recency carve-out is empty when the client's cache breakpoint sits on the newest message, as in Claude Code), so a 4k-character file read came back as a stub and the agent read it again. The Tier-1 digest, HTML strip and first-sight digest now apply only to blocks of at least 2,000 tokens; smaller output reaches the agent whole (lossless transforms still apply). SWE-bench Lite-300, Sonnet 5.5: steps vs plain +11.6% (p = 0.002) → +2.6% (p = 0.59), 206/299 solved vs plain's 209 (non-inferior), cost +1.9% (not significant). <code>benchmarks/results/swebench-lite-300-distil-floor/</code>.</li>
+<li><strong>Prose above the floor drops whole sentences</strong> (<code>distil/compress/prose.py</code>). Headings, code, tables, lead sentences, DECISION/error lines and the most specific sentences stay; the rest is recoverable by handle. File reads stay byte-exact as before (an <code>Edit</code> may quote them).</li>
 <li><strong>Facts stay in view.</strong> The Tier-1 digest keeps the densest identifier lines (paths, URLs, SHAs, <code>key=value</code>) within 10% of the block, the cold-point stub keeps one must-keep line per shape, and XML / JSON envelopes are no longer stripped as HTML chrome. Visible recall on the held-out Headroom h2h half: default 86.1% -&gt; 98.4%, aggressive 55.4% -&gt; 88.7% (<code>benchmarks/results/visible-recall</code>).</li>
 </ul>
 <h3>Fixed</h3>

@@ -7,6 +7,8 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+## [1.59.0] — 2026-11-01 — the agent reads what it asked for: no more first-sight stubs, every route at parity
+
 ### Added
 - **Bedrock InvokeModel and Vertex AI routes** (Anthropic `rawPredict`, Gemini `generateContent`)
   compress and book savings like the direct providers; the model comes from the URL and Bedrock
@@ -48,6 +50,17 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
   Claude Code tool output; the Headroom SWE-bench arm is pinned to 0.42.0.
 
 ### Changed
+- **Lossy digests need 2,000 tokens.** distil digested any tool output of 6+ lines the first time
+  the agent saw it (the recency carve-out is empty when the client's cache breakpoint sits on the
+  newest message, as in Claude Code), so a 4k-character file read came back as a stub and the
+  agent read it again. The Tier-1 digest, HTML strip and first-sight digest now apply only to
+  blocks of at least 2,000 tokens; smaller output reaches the agent whole (lossless transforms
+  still apply). SWE-bench Lite-300, Sonnet 5.5: steps vs plain +11.6% (p = 0.002) → +2.6%
+  (p = 0.59), 206/299 solved vs plain's 209 (non-inferior), cost +1.9% (not significant).
+  `benchmarks/results/swebench-lite-300-distil-floor/`.
+- **Prose above the floor drops whole sentences** (`distil/compress/prose.py`). Headings, code,
+  tables, lead sentences, DECISION/error lines and the most specific sentences stay; the rest is
+  recoverable by handle. File reads stay byte-exact as before (an `Edit` may quote them).
 - **Facts stay in view.** The Tier-1 digest keeps the densest identifier lines (paths, URLs, SHAs,
   `key=value`) within 10% of the block, the cold-point stub keeps one must-keep line per shape, and
   XML / JSON envelopes are no longer stripped as HTML chrome. Visible recall on the held-out

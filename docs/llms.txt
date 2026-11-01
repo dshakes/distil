@@ -114,10 +114,12 @@ corpus gate; on the read->edit->re-read codebench workload Headroom takes 35.6%
 tokens for +4.9% dollars. Offline against headroom-ai 0.42.0 (2026-10-29, 360
 real tool outputs, tokens and fact recall only; not cost or task success,
 benchmarks/results/headroom-0-42-h2h/), Headroom kept more facts visible than
-distil 1.58.0; this release's identifier-line keep moved distil's held-out
-visible recall from 86.1% to 98.4% (Headroom default 92.4%) at 11.0% tokens
-removed (Headroom 7.1%). The visible-recall lead is significant; the token lead
-is not, against Headroom's default or agent-90. Headroom still wins on prose.
+distil 1.58.0; the identifier-line keep moved distil's held-out visible
+recall from 86.1% to 98.4% (Headroom default 92.4%). 1.59.0 stopped digesting
+output under 2,000 tokens: re-run on fresh samples (benchmarks/results/
+headroom-0-42-h2h-floor/), distil's default removes 2.3% of tokens at 99.6%
+visible recall against Headroom coding's 5.5% at 94.7%; modelled session bill
+-5.7% vs -4.3%, not significantly different. Headroom still wins on prose.
 How often an agent then needs distil_expand, and task success, are unmeasured
 (benchmarks/results/visible-recall/).
 
