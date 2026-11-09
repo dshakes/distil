@@ -555,6 +555,15 @@ class Recorder:
         self.messages = self
 
     def create(self, **kw):
+        # Prompt caching: the arms of one case (full_a/full_b/distil/trunc/served/expand
+        # rounds) share the same tools + system prefix, and only the user turn differs.
+        # One breakpoint on the system block caches tools+system for the later arms.
+        # Prompts under the model's minimum cacheable length are silently not cached.
+        system = kw.get("system")
+        if isinstance(system, str) and system:
+            kw["system"] = [
+                {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+            ]
         t0 = time.monotonic()
         r = self.inner.messages.create(**kw)
         served = getattr(r, "model", None)

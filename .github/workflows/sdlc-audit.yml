@@ -16,7 +16,13 @@ name: "sdlc · audit (Codex)"
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, labeled]
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'site/**'
+      - '**/*.svg'
+      - '**/*.lock'
 
 
 permissions:
@@ -45,6 +51,7 @@ jobs:
     # noted so the cost is a known trade rather than a surprise.
     if: >-
       github.actor != 'dependabot[bot]'
+      && !github.event.pull_request.draft
       && (github.event.action != 'synchronize' || !endsWith(github.actor, '[bot]'))
       && (github.event.action != 'labeled' || github.event.label.name == 'agent:audit')
     runs-on: ubuntu-latest
