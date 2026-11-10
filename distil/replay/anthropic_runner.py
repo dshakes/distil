@@ -13,6 +13,11 @@ key); treat live results as UNVERIFIED until you run them against your account.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import time
+from collections.abc import Callable, Hashable
+from types import SimpleNamespace
 from typing import Any
 
 from ..trajectory import Block
@@ -252,3 +257,97 @@ class AnthropicRunner:
         return "".join(
             getattr(b, "text", "") for b in content if getattr(b, "type", None) == "text"
         )
+
+
+class BatchError(Exception):
+    """A batch request that did not succeed; shaped like an SDK error so
+    AnthropicRunner._create's forced-tool_choice fallback still recognises a 400."""
+
+    def __init__(self, res: Any) -> None:
+        err = getattr(getattr(res, "error", None), "error", None)
+        super().__init__(f"batch request {res.type}: {getattr(err, 'message', err)}")
+        self.status_code = 400 if getattr(err, "type", None) == "invalid_request_error" else None
+
+
+class BatchClient:
+    """Message Batches (50% off) behind the sync ``client.messages.create`` shape, so a
+    harness written against the sync client runs unchanged.
+
+    ``run_all`` replays every task until none asks for an unanswered request: a request
+    with no result yet is recorded and answered with an empty placeholder, and each pass
+    submits the recorded requests as ONE batch and polls it to completion. Dependent
+    calls (the expand loop) need one extra pass per round. Results are matched by
+    custom_id = hash(task key, request) + occurrence index, so repeated identical
+    requests (full_a / full_b, majority votes) stay independent draws.
+    """
+
+    MAX_PASSES = 8  # one per dependent round; the expand loop needs max_iters + 1
+
+    def __init__(self, inner: Any, poll_s: float = 30.0, max_requests: int | None = None) -> None:
+        self.inner, self.poll_s, self.max_requests = inner, poll_s, max_requests
+        self.results: dict[str, Any] = {}  # custom_id -> Message | BatchError
+        self.pending: dict[str, dict[str, Any]] = {}
+        self.submitted = 0
+
+    def task(self, key: Hashable) -> SimpleNamespace:
+        seen: dict[str, int] = {}
+
+        def create(**kw: Any) -> Any:
+            h = hashlib.sha256(json.dumps([repr(key), kw], sort_keys=True).encode()).hexdigest()
+            seen[h] = n = seen.get(h, -1) + 1
+            cid = f"{h[:40]}-{n}"
+            if cid not in self.results:
+                self.pending[cid] = kw
+                return SimpleNamespace(
+                    model=kw.get("model"),
+                    content=[],
+                    stop_reason="end_turn",
+                    usage=SimpleNamespace(input_tokens=0, output_tokens=0),
+                )
+            if isinstance(self.results[cid], Exception):
+                raise self.results[cid]
+            return self.results[cid]
+
+        return SimpleNamespace(messages=SimpleNamespace(create=create))
+
+    def run_all(self, tasks: dict[Hashable, Callable[[Any], Any]]) -> dict[Hashable, Any]:
+        """{key: fn(client)} -> {key: result or the Exception/SystemExit it raised}."""
+        # A task whose requests differ between replays (a timestamp, a random id) would
+        # never find its results and resubmit forever; the pass cap is the spend ceiling.
+        for _ in range(self.MAX_PASSES):
+            self.pending = {}
+            out: dict[Hashable, Any] = {}
+            for key, fn in tasks.items():
+                try:
+                    out[key] = fn(self.task(key))
+                except (Exception, SystemExit) as e:  # noqa: BLE001 - reported per task
+                    out[key] = e
+            if not self.pending:
+                return out
+            self._submit()
+        raise SystemExit(
+            f"distil: batch replay did not converge in {self.MAX_PASSES} passes"
+            " (requests must be deterministic across replays)"
+        )
+
+    def _submit(self) -> None:
+        self.submitted += len(self.pending)
+        if self.max_requests is not None and self.submitted > self.max_requests:
+            raise SystemExit(
+                f"distil: batch request budget exhausted ({self.submitted}/{self.max_requests})"
+                " — raise --max-live-calls or shrink the trajectory set."
+            )
+        batches = self.inner.messages.batches
+        b = batches.create(
+            requests=[{"custom_id": c, "params": kw} for c, kw in self.pending.items()]
+        )
+        # ponytail: a killed process (CI job timeout) abandons a batch that still bills;
+        # persist b.id and resume if batches ever outlive the job. They expire at 24h.
+        while b.processing_status != "ended":
+            time.sleep(self.poll_s)
+            b = batches.retrieve(b.id)
+        for e in batches.results(b.id):
+            r = e.result
+            self.results[e.custom_id] = r.message if r.type == "succeeded" else BatchError(r)
+        if missing := self.pending.keys() - self.results.keys():
+            raise SystemExit(f"distil: batch {b.id} returned no result for {len(missing)} requests")

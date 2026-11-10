@@ -40,7 +40,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from distil.conformal import crc_select, default_ladder, hb_pvalue, ltt_certify  # noqa: E402
 from distil.replay import prompts, realtrace  # noqa: E402
-from distil.replay.anthropic_runner import DEFAULT_MODEL, EFFORTS, effort_for  # noqa: E402
+from distil.replay.anthropic_runner import (  # noqa: E402
+    DEFAULT_MODEL,
+    EFFORTS,
+    BatchClient,
+    effort_for,
+)
 from distil.tokenizer import DEFAULT as tok  # noqa: E402
 
 CACHE_DIR = Path(__file__).resolve().parent / ".cache"
@@ -52,8 +57,9 @@ CACHE_DIR = Path(__file__).resolve().parent / ".cache"
 
 
 class DecisionCache:
-    def __init__(self, runner, namespace: str):
+    def __init__(self, runner, namespace: str, batch=None):
         self.runner = runner
+        self.batch = batch  # BatchClient: grade uncached decisions via the Message Batches API
         self.path = CACHE_DIR / f"decisions_{namespace}.json"
         self.store: dict[str, str] = {}
         if self.path.exists():
@@ -113,6 +119,30 @@ class DecisionCache:
         if not todo:
             return
         items = list(todo.items())
+        if self.batch:
+            base = getattr(self.runner, "base", self.runner)  # ExpandAwareRunner wraps one
+            real = base._client
+
+            def task(b, r):
+                def run(client):
+                    base._client = client
+                    return self._call(b, r)
+
+                return run
+
+            try:
+                out = self.batch.run_all({k: task(b, r) for k, (b, r) in items})
+            finally:
+                base._client = real
+            failed = [d for d in out.values() if isinstance(d, BaseException)]
+            for k, d in out.items():
+                if not isinstance(d, BaseException):
+                    self.store[k] = d
+                    self.misses += 1
+            self.flush()  # keep what the batch paid for before reporting a failure
+            if failed:
+                raise failed[0]
+            return
         if workers <= 1:
             results = ((k, self._call(b, r)) for k, (b, r) in items)
         else:
@@ -603,6 +633,13 @@ def main() -> int:
     )
     ap.add_argument("--model", default=DEFAULT_MODEL, help="grader model id")
     ap.add_argument(
+        "--tier",
+        choices=["realtime", "batch"],
+        default="realtime",
+        help="anthropic runner: batch submits uncached decisions via the Message Batches API "
+        "(50%% off, completes asynchronously); cached decisions are reused either way",
+    )
+    ap.add_argument(
         "--effort",
         default=None,
         choices=EFFORTS,
@@ -716,6 +753,9 @@ def main() -> int:
     )
 
     # ---- runner ------------------------------------------------------------
+    batch = None
+    if args.tier == "batch" and args.runner != "anthropic":
+        raise SystemExit("--tier batch needs --runner anthropic")
     if args.runner == "smoke":
         from distil.replay.smoke_runner import SmokeRunner
 
@@ -734,8 +774,13 @@ def main() -> int:
 
         effort = effort_for(args.model, args.effort)
         runner = AnthropicRunner(
-            model=args.model, samples=args.samples, max_calls=args.max_live_calls, effort=effort
+            model=args.model,
+            samples=args.samples,
+            max_calls=None if args.tier == "batch" else args.max_live_calls,
+            effort=effort,
         )
+        if args.tier == "batch":  # the budget is enforced on submitted requests instead
+            batch = BatchClient(runner._ensure_client(), max_requests=args.max_live_calls)
         # Effort is part of the grader's identity: a decision cached at one effort must
         # not answer for another. Unsuffixed when unset, so older caches still resolve.
         ns = f"anthropic_{args.model}_s{args.samples}" + (f"_e{effort}" if effort else "")
@@ -762,6 +807,7 @@ def main() -> int:
         "namespace": ns,
         "model": getattr(runner, "model", None),
         "effort": getattr(runner, "effort", None),
+        "tier": args.tier,
     }
     evidential = args.runner != "smoke"
     if evidential and args.samples == 1:
@@ -796,7 +842,7 @@ def main() -> int:
         baselines = load_baselines()
         print(f"baselines: {', '.join(n for n, _ in baselines)}")
 
-    cache = DecisionCache(runner, ns)
+    cache = DecisionCache(runner, ns, batch)
     matrix = build_matrix(
         entries,
         cache,
