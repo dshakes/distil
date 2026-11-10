@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import functools
 import hashlib
 import json
 import math
@@ -52,7 +53,7 @@ from distil.compress.strategies import distil as distil_strategy  # noqa: E402
 from distil.corpus import load_corpus  # noqa: E402
 from distil.eval import _truncate  # noqa: E402
 from distil.replay import prompts  # noqa: E402
-from distil.replay.anthropic_runner import AnthropicRunner  # noqa: E402
+from distil.replay.anthropic_runner import AnthropicRunner, BatchClient  # noqa: E402
 from distil.replay.expand_runner import ExpandAwareRunner, build_restore  # noqa: E402
 from distil.tokenizer import DEFAULT as TOK  # noqa: E402
 
@@ -930,6 +931,13 @@ def main() -> None:
     ap.add_argument("--model")
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--concurrency", type=int, default=8)
+    ap.add_argument(
+        "--tier",
+        choices=["realtime", "batch"],
+        default="realtime",
+        help="batch: submit every request via the Message Batches API (50%% off, asynchronous; "
+        "latency fields are then not comparable); cost is recorded at the batch rate",
+    )
     ap.add_argument("--timeout-s", type=float, default=900)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
@@ -1083,6 +1091,8 @@ def main() -> None:
         file=sys.stderr,
     )
 
+    if a.tier == "batch" and a.fake:
+        sys.exit("--tier batch needs the live API (--fake has no batches endpoint)")
     if a.fake:
         client = FakeClient(a.fake, a.model)
     else:
@@ -1090,14 +1100,26 @@ def main() -> None:
     lock = threading.Lock()
     ok = fail = 0
 
-    def one(c, rep):
+    def one(c, rep, client=client):
         run = run_case(c, client, a.model, a.effort, arms_on)
         g = grade(run, ref.get(c["id"]) if a.variant != "baseline" else None)
         return run, g
 
     t_start = time.monotonic()
     with cf.ThreadPoolExecutor(a.concurrency) as ex:
-        futs = {ex.submit(one, c, r): (c, r, time.monotonic()) for c, r in tasks}
+        if a.tier == "batch":
+            # every case replays against one batch per pass; results then resolve instantly
+            batch = BatchClient(client)
+            out = batch.run_all({(c["id"], r): functools.partial(one, c, r) for c, r in tasks})
+
+            def settle(c, r):
+                if isinstance(out[(c["id"], r)], BaseException):
+                    raise out[(c["id"], r)]
+                return out[(c["id"], r)]
+
+            futs = {ex.submit(settle, c, r): (c, r, time.monotonic()) for c, r in tasks}
+        else:
+            futs = {ex.submit(one, c, r): (c, r, time.monotonic()) for c, r in tasks}
         for f in cf.as_completed(futs):
             c, rep, t0 = futs[f]
             try:
@@ -1108,6 +1130,7 @@ def main() -> None:
                     "prompt": c["title"],
                     "tags": c["tags"],
                     "model": run["model"],
+                    "tier": a.tier,
                     "usage": run["usage"],
                     "stop_reason": run["stop_reason"],
                     "status": "truncated" if run["stop_reason"] == "max_tokens" else "ok",
@@ -1207,7 +1230,10 @@ PRICES = {
 }
 
 
-def cost_usd(model: str, u: dict) -> float:
+BATCH_DISCOUNT = 0.5  # Message Batches bill every token class at half the realtime rate
+
+
+def cost_usd(model: str, u: dict, tier: str = "realtime") -> float:
     base = next(
         (m for m in PRICES if model == m or model.startswith(m + "-") or model.startswith(m + "@")),
         None,
@@ -1216,11 +1242,15 @@ def cost_usd(model: str, u: dict) -> float:
         raise KeyError(f"no price for {model}; add it to PRICES")
     pin, pout = PRICES[base]
     return (
-        u.get("input_tokens", 0) * pin
-        + u.get("cache_creation_input_tokens", 0) * pin * 1.25
-        + u.get("cache_read_input_tokens", 0) * pin * 0.1
-        + u.get("output_tokens", 0) * pout
-    ) / 1e6
+        (
+            u.get("input_tokens", 0) * pin
+            + u.get("cache_creation_input_tokens", 0) * pin * 1.25
+            + u.get("cache_read_input_tokens", 0) * pin * 0.1
+            + u.get("output_tokens", 0) * pout
+        )
+        / 1e6
+        * (BATCH_DISCOUNT if tier == "batch" else 1.0)
+    )
 
 
 def _paired_ci(base: dict, var: dict) -> tuple[float, float, int]:
@@ -1267,7 +1297,7 @@ def status_table(flow: Path) -> str:
         for r in ok:
             byid.setdefault(r["prompt_id"], []).append(r["grade"]["equiv_distil_act"])
         per[v.name] = {i: x for i, x in byid.items() if not test or i in test}
-        costs = [cost_usd(r["model"], r["usage"]) for r in rows]
+        costs = [cost_usd(r["model"], r["usage"], r.get("tier", "realtime")) for r in rows]
 
         def pct(m):
             have = [r for r in ok if m in r["grade"]]

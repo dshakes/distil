@@ -7,6 +7,13 @@ Entries are short Added/Changed/Fixed bullets; long-form write-ups live on the b
 
 ## [Unreleased]
 
+### Added
+- **`--tier batch` on the benchmark harnesses** (`benchmarks/prove.py`,
+  `benchmarks/model_migration_eval.py`): uncached grader calls go out as Message Batches (half the
+  realtime rate, asynchronous). Results carry the tier and cost math applies the discount only to
+  batch rows; `--max-live-calls` bounds submitted requests. The nightly live gate uses it and now
+  persists its decision cache between runs. Live batch runs are UNVERIFIED (fake client only).
+
 ## [1.59.0] — 2026-11-01 — the agent reads what it asked for: no more first-sight stubs, every route at parity
 
 ### Added

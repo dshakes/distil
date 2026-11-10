@@ -79,6 +79,18 @@ jobs:
           else
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
+      # prove.py keys each decision by rendered-context hash under its grader namespace
+      # (model, samples, effort), so a restored cache only answers for the same grader.
+      # The run id makes every save a fresh entry; restore-keys picks up the newest one.
+      # Restore and save are separate steps so a failing gate still saves the decisions
+      # it paid for (the combined action only saves when the job succeeds).
+      - name: Restore decision cache
+        if: steps.key.outputs.present == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: benchmarks/.cache
+          key: live-cert-decisions-${{ github.run_id }}
+          restore-keys: live-cert-decisions-
       - name: Live serving-semantics gate via prove.py (budget-capped, disk-cached decisions)
         if: steps.key.outputs.present == 'true'
         run: |
@@ -89,6 +101,7 @@ jobs:
                --runner anthropic \
                --model "$LIVE_CERT_MODEL" \
                --effort "$LIVE_CERT_EFFORT" \
+               --tier batch \
                --samples 3 \
                --ladder quick \
                --alpha 0.20 \
@@ -105,6 +118,12 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
+      - name: Save decision cache
+        if: always() && steps.key.outputs.present == 'true' && hashFiles('benchmarks/.cache/**') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: benchmarks/.cache
+          key: live-cert-decisions-${{ github.run_id }}
       - name: Upload reports
         if: always() && steps.key.outputs.present == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
